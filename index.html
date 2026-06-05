@@ -1,1 +1,2483 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shift Operations Portal</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Mulish:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:#f5f3ef;--surface:#fff;--surface2:#faf9f7;--border:#e4e0d8;--border2:#ccc9c0;
+  --text:#1c1a17;--muted:#8a8478;--accent:#2d5a3d;--accent-lt:#e8f0eb;
+  --accent2:#c8a84b;--accent2-lt:#fdf6e3;--danger:#c0392b;--danger-lt:#fdf0ee;
+  --foh-color:#2d5a3d;--foh-lt:#e8f0eb;--foh2-color:#1a6b8a;--foh2-lt:#e6f4f9;--boh-color:#7b3f6e;--boh-lt:#f4eaf2;
+  --close-color:#8b4513;--close-lt:#fdf0e4;--grill-color:#b5451b;--grill-lt:#fdf0eb;
+  --asst-color:#1a6b8a;--asst-lt:#e6f4f9;
+  --shadow:0 2px 12px rgba(0,0,0,0.08);--shadow-lg:0 8px 32px rgba(0,0,0,0.12);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:'Mulish',sans-serif;min-height:100vh;font-size:14px}
+.screen{display:none;min-height:100vh}
+.screen.active{display:flex;flex-direction:column}
+
+/* LOGIN */
+#screen-login{align-items:center;justify-content:center;background:linear-gradient(135deg,#1c3a28 0%,#2d5a3d 50%,#1a2e1f 100%);position:relative;overflow:hidden}
+#screen-login::before{content:'';position:absolute;width:600px;height:600px;border-radius:50%;background:rgba(200,168,75,0.08);top:-200px;right:-200px}
+#screen-login::after{content:'';position:absolute;width:400px;height:400px;border-radius:50%;background:rgba(200,168,75,0.05);bottom:-150px;left:-100px}
+.login-card{background:var(--surface);border-radius:20px;padding:48px 44px;width:420px;max-width:calc(100vw - 32px);box-shadow:var(--shadow-lg);position:relative;z-index:1;animation:slideUp .4s ease}
+@keyframes slideUp{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:translateY(0)}}
+.login-logo{width:54px;height:54px;background:var(--accent);border-radius:14px;display:flex;align-items:center;justify-content:center;margin-bottom:20px}
+.login-logo svg{width:28px;height:28px}
+.login-card h1{font-family:'Playfair Display',serif;font-size:26px;margin-bottom:4px}
+.login-card p{color:var(--muted);font-size:13px;margin-bottom:32px}
+.form-group{margin-bottom:18px}
+.form-group label{display:block;font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:8px}
+.form-group select,.form-group input{width:100%;padding:12px 14px;border:1.5px solid var(--border);border-radius:10px;font-family:'Mulish',sans-serif;font-size:14px;color:var(--text);background:var(--surface2);outline:none;transition:border .2s,box-shadow .2s;appearance:none}
+.form-group select:focus,.form-group input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(45,90,61,0.1)}
+.pin-wrap{position:relative}
+.pin-wrap input{letter-spacing:.2em;font-weight:700;font-size:18px}
+.pin-toggle{position:absolute;right:14px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--muted);font-size:16px;padding:4px}
+.login-btn{width:100%;padding:14px;background:var(--accent);color:white;border:none;border-radius:10px;font-family:'Mulish',sans-serif;font-size:15px;font-weight:700;cursor:pointer;transition:background .2s,transform .1s;margin-top:8px}
+.login-btn:hover{background:#245030}
+.login-btn:active{transform:scale(.98)}
+.login-error{background:var(--danger-lt);border:1px solid #f5c6c0;color:var(--danger);border-radius:8px;padding:10px 14px;font-size:13px;margin-top:14px;display:none}
+.login-error.show{display:block}
+
+/* PORTAL HEADER */
+.portal-header{background:var(--surface);border-bottom:1px solid var(--border);padding:14px 28px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:200;box-shadow:0 1px 6px rgba(0,0,0,0.06);flex-wrap:wrap;gap:10px}
+.header-brand{display:flex;align-items:center;gap:12px}
+.brand-icon{width:36px;height:36px;background:var(--accent);border-radius:9px;display:flex;align-items:center;justify-content:center}
+.brand-icon svg{width:18px;height:18px}
+.brand-name{font-family:'Playfair Display',serif;font-size:17px}
+.brand-sub{font-size:11px;color:var(--muted);margin-top:1px}
+.header-right{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.user-chip{display:flex;align-items:center;gap:8px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:6px 12px}
+.user-avatar{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:white;flex-shrink:0}
+.role-manager{background:var(--accent2)}
+.role-supervisor{background:var(--accent)}
+.role-asst{background:var(--asst-color)}
+.user-name{font-size:13px;font-weight:600}
+.user-role{font-size:11px;color:var(--muted)}
+.logout-btn{background:none;border:1px solid var(--border);color:var(--muted);padding:7px 14px;border-radius:8px;cursor:pointer;font-family:'Mulish',sans-serif;font-size:12px;font-weight:600;transition:all .2s}
+.logout-btn:hover{border-color:var(--danger);color:var(--danger)}
+.date-badge{font-size:12px;color:var(--muted);background:var(--surface2);border:1px solid var(--border);padding:6px 12px;border-radius:8px;white-space:nowrap}
+.mgr-tab-btn{background:none;border:1px solid var(--border);color:var(--muted);padding:7px 14px;border-radius:8px;cursor:pointer;font-family:'Mulish',sans-serif;font-size:12px;font-weight:600;transition:all .2s}
+.mgr-tab-btn.active{background:var(--accent);color:white;border-color:var(--accent)}
+.mgr-tab-btn:hover:not(.active){border-color:var(--accent);color:var(--accent)}
+
+/* SUPERVISOR VIEW */
+#screen-supervisor{background:var(--bg)}
+.sup-body{flex:1;padding:24px 28px;max-width:900px;margin:0 auto;width:100%}
+.checklist-tabs{display:flex;gap:6px;margin-bottom:0;flex-wrap:wrap}
+.ctab{padding:10px 20px;border-radius:10px 10px 0 0;border:1px solid var(--border);border-bottom:none;background:var(--surface2);color:var(--muted);cursor:pointer;font-family:'Mulish',sans-serif;font-size:13px;font-weight:600;transition:all .2s;display:flex;align-items:center;gap:8px;position:relative;top:1px}
+.ctab.active{background:var(--surface);color:var(--text)}
+.ctab-dot{width:8px;height:8px;border-radius:50%}
+.foh-dot{background:var(--foh-color)}.foh2-dot{background:var(--foh2-color)}.boh-dot{background:var(--boh-color)}.close-dot{background:var(--close-color)}.grill-dot{background:var(--grill-color)}
+.ctab-count{font-size:11px;padding:2px 7px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--muted)}
+.ctab.active .ctab-count{background:var(--accent-lt);border-color:var(--accent);color:var(--accent)}
+.checklist-card{background:var(--surface);border:1px solid var(--border);border-radius:0 12px 12px 12px;padding:24px 28px;box-shadow:var(--shadow)}
+.cl-panel{display:none}.cl-panel.active{display:block}
+.cl-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid var(--border);flex-wrap:wrap;gap:10px}
+.cl-title{font-family:'Playfair Display',serif;font-size:20px}
+.cl-subtitle{font-size:12px;color:var(--muted);margin-top:2px}
+.cl-badge{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:5px 14px;border-radius:20px}
+.badge-foh{background:var(--foh-lt);color:var(--foh-color)}.badge-foh2{background:var(--foh2-lt);color:var(--foh2-color)}.badge-boh{background:var(--boh-lt);color:var(--boh-color)}.badge-close{background:var(--close-lt);color:var(--close-color)}.badge-grill{background:var(--grill-lt);color:var(--grill-color)}
+.cl-progress{display:flex;align-items:center;gap:12px;margin-bottom:20px}
+.cl-prog-track{flex:1;height:6px;background:var(--border);border-radius:99px;overflow:hidden}
+.cl-prog-fill{height:100%;border-radius:99px;transition:width .4s ease;width:0%}
+.foh-fill{background:var(--foh-color)}.foh2-fill{background:var(--foh2-color)}.boh-fill{background:var(--boh-color)}.close-fill{background:var(--close-color)}.grill-fill{background:var(--grill-color)}
+.cl-prog-label{font-size:12px;color:var(--muted);white-space:nowrap}
+.cl-prog-label b{color:var(--text)}
+.cat-header{display:flex;align-items:center;gap:10px;padding:16px 0 8px;font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.cat-line{flex:1;height:1px;background:var(--border)}
+.task-row{display:flex;align-items:center;gap:14px;padding:12px 14px;border-radius:9px;cursor:pointer;transition:background .15s;margin-bottom:3px;border:1px solid transparent;user-select:none}
+.task-row:hover{background:var(--surface2)}
+.task-row.checked{background:#f0f7f2;border-color:#b8dcc4}
+.task-row.checked .task-text{text-decoration:line-through;color:var(--muted)}
+.cb-box{width:22px;height:22px;border-radius:6px;border:2px solid var(--border2);flex-shrink:0;display:flex;align-items:center;justify-content:center;transition:all .2s}
+.task-row.checked .cb-box{background:var(--foh-color);border-color:var(--foh-color)}
+.foh2-checked .cb-box{background:var(--foh2-color)!important;border-color:var(--foh2-color)!important}
+.boh-checked .cb-box{background:var(--boh-color)!important;border-color:var(--boh-color)!important}
+.close-checked .cb-box{background:var(--close-color)!important;border-color:var(--close-color)!important}
+.grill-checked .cb-box{background:var(--grill-color)!important;border-color:var(--grill-color)!important}
+.cb-check{display:none}.task-row.checked .cb-check{display:block}
+.task-text{flex:1;line-height:1.5}
+.initials-inp{width:68px;background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:6px 8px;color:var(--text);font-family:'Mulish',sans-serif;font-size:12px;font-weight:700;text-align:center;text-transform:uppercase;outline:none;flex-shrink:0;transition:border .2s}
+.initials-inp:focus{border-color:var(--accent)}
+
+/* REMARKS AREA */
+.remarks-area-block{margin-top:24px;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:20px}
+.remarks-area-title{font-family:'Playfair Display',serif;font-size:14px;margin-bottom:10px;display:flex;align-items:center;gap:8px}
+.remarks-area-title::before{content:'';display:block;width:3px;height:14px;background:var(--accent2);border-radius:2px}
+.remarks-area-textarea{width:100%;background:var(--surface);border:1.5px solid var(--border);border-radius:8px;padding:12px;color:var(--text);font-family:'Mulish',sans-serif;font-size:13px;outline:none;resize:vertical;min-height:80px;transition:border .2s}
+.remarks-area-textarea:focus{border-color:var(--accent2)}
+.remarks-area-textarea[readonly]{background:var(--surface2);cursor:default;color:var(--muted)}
+
+/* SIGNATURE PAD */
+.sig-pad-wrap{position:relative;background:var(--surface);border:1.5px solid var(--border);border-radius:8px;overflow:hidden}
+.sig-pad-canvas{display:block;cursor:crosshair;touch-action:none;width:100%;height:100px}
+.sig-pad-canvas.readonly{cursor:default}
+.sig-pad-actions{display:flex;align-items:center;gap:8px;padding:6px 10px;border-top:1px solid var(--border);background:var(--surface2)}
+.sig-clear-btn{background:none;border:1px solid var(--border);border-radius:6px;padding:4px 10px;font-family:'Mulish',sans-serif;font-size:12px;cursor:pointer;color:var(--muted);transition:all .2s}
+.sig-clear-btn:hover{border-color:var(--danger);color:var(--danger)}
+.sig-hint{font-size:11px;color:var(--muted);flex:1}
+
+/* SIGNOFF */
+.signoff-block{margin-top:28px;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:22px}
+.signoff-title{font-family:'Playfair Display',serif;font-size:15px;margin-bottom:16px;display:flex;align-items:center;gap:8px}
+.signoff-title::before{content:'';display:block;width:3px;height:16px;background:var(--accent2);border-radius:2px}
+.signoff-grid{display:grid;gap:14px;grid-template-columns:1fr 1fr}
+.signoff-grid.g3{grid-template-columns:1fr 1fr 1fr}
+.sf-field label{display:block;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.sf-field input{width:100%;background:var(--surface);border:1.5px solid var(--border);border-radius:8px;padding:10px 12px;color:var(--text);font-family:'Mulish',sans-serif;font-size:14px;outline:none;transition:border .2s}
+.sf-field input:focus{border-color:var(--accent)}
+.submit-row{display:flex;align-items:center;justify-content:flex-end;gap:12px;margin-top:18px;flex-wrap:wrap}
+.warn-txt{font-size:12px;color:var(--danger);display:none}
+.warn-txt.show{display:block}
+.submit-btn{background:var(--accent);color:white;border:none;border-radius:9px;padding:11px 28px;font-family:'Mulish',sans-serif;font-size:14px;font-weight:700;cursor:pointer;transition:background .2s}
+.submit-btn:hover{background:#245030}
+.submitted-badge{display:none;align-items:center;gap:8px;background:#e8f5ed;border:1px solid #a8d8b5;color:var(--accent);border-radius:9px;padding:10px 18px;font-size:13px;font-weight:700}
+.submitted-badge.show{display:flex}
+
+/* MANAGER DASHBOARD */
+#screen-manager{background:var(--bg)}
+.mgr-body{flex:1;padding:24px 28px;max-width:1100px;margin:0 auto;width:100%}
+.mgr-view{display:none}.mgr-view.active{display:block}
+.mgr-date-nav{display:flex;align-items:center;gap:12px;margin-bottom:24px;flex-wrap:wrap}
+.mgr-date-nav h2{font-family:'Playfair Display',serif;font-size:22px;flex:1}
+.nav-btn{background:var(--surface);border:1px solid var(--border);color:var(--text);width:34px;height:34px;border-radius:8px;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;transition:all .2s}
+.nav-btn:hover{border-color:var(--accent);color:var(--accent)}
+.nav-btn:disabled{opacity:.35;cursor:not-allowed}
+.date-inp-wrap input[type="date"]{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:7px 12px;font-family:'Mulish',sans-serif;font-size:13px;color:var(--text);outline:none;cursor:pointer}
+.overview-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:28px}
+.ov-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:20px 22px;box-shadow:var(--shadow);position:relative;overflow:hidden}
+.ov-card::before{content:'';position:absolute;top:0;left:0;right:0;height:4px}
+.ov-foh::before{background:var(--foh-color)}.ov-foh2::before{background:var(--foh2-color)}.ov-boh::before{background:var(--boh-color)}.ov-close::before{background:var(--close-color)}.ov-grill::before{background:var(--grill-color)}
+.ov-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:10px}
+.ov-pct{font-family:'Playfair Display',serif;font-size:36px;font-weight:700;line-height:1}
+.ov-sub{font-size:12px;color:var(--muted);margin-top:6px}
+.ov-bar{height:5px;background:var(--border);border-radius:99px;overflow:hidden;margin-top:14px}
+.ov-bar-fill{height:100%;border-radius:99px;transition:width .5s ease}
+.ov-foh .ov-bar-fill{background:var(--foh-color)}.ov-foh2 .ov-bar-fill{background:var(--foh2-color)}.ov-boh .ov-bar-fill{background:var(--boh-color)}.ov-close .ov-bar-fill{background:var(--close-color)}.ov-grill .ov-bar-fill{background:var(--grill-color)}
+.ov-who{margin-top:12px;display:flex;flex-wrap:wrap;gap:6px}
+.ov-chip{font-size:11px;padding:3px 10px;border-radius:20px;border:1px solid var(--border);color:var(--muted);background:var(--surface2)}
+.ov-chip.done{background:var(--accent-lt);border-color:var(--accent);color:var(--accent)}
+.sup-summary{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:20px}
+.sup-card{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;display:flex;align-items:center;gap:14px}
+.sup-avatar{width:38px;height:38px;border-radius:10px;background:var(--accent);color:white;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0}
+.sup-info-name{font-weight:700;font-size:13px}.sup-info-role{font-size:11px;color:var(--muted)}.sup-info-stat{font-size:12px;margin-top:4px}
+.sup-stat-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px}
+.mgr-section{background:var(--surface);border:1px solid var(--border);border-radius:14px;margin-bottom:20px;box-shadow:var(--shadow);overflow:hidden}
+.mgr-section-head{padding:16px 22px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;cursor:pointer;user-select:none}
+.mgr-section-head h3{font-family:'Playfair Display',serif;font-size:16px;flex:1}
+.section-toggle{color:var(--muted);font-size:18px;transition:transform .2s}
+.mgr-section.open .section-toggle{transform:rotate(180deg)}
+.mgr-section-body{display:none;padding:18px 22px}
+.mgr-section.open .mgr-section-body{display:block}
+.task-table{width:100%;border-collapse:collapse;font-size:13px}
+.task-table th{text-align:left;padding:8px 12px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);border-bottom:1px solid var(--border)}
+.task-table td{padding:10px 12px;border-bottom:1px solid var(--border)}
+.task-table tr:last-child td{border-bottom:none}
+.task-table tr:hover td{background:var(--surface2)}
+.status-done{display:inline-flex;align-items:center;gap:5px;background:#e8f5ed;color:var(--accent);border-radius:6px;padding:3px 10px;font-size:11px;font-weight:700}
+.status-pending{display:inline-flex;align-items:center;gap:5px;background:var(--danger-lt);color:var(--danger);border-radius:6px;padding:3px 10px;font-size:11px;font-weight:700}
+.initials-cell{font-size:12px;font-weight:700;color:var(--muted);background:var(--surface2);padding:3px 8px;border-radius:5px;display:inline-block}
+.remarks-section{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:22px;margin-bottom:20px;box-shadow:var(--shadow)}
+.remarks-title{font-family:'Playfair Display',serif;font-size:16px;margin-bottom:16px;display:flex;align-items:center;gap:8px}
+.remarks-title::before{content:'';width:3px;height:18px;background:var(--accent2);border-radius:2px;display:block}
+.remarks-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px}
+.remark-field label{display:block;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.remark-field input,.remark-field select,.remark-field textarea{width:100%;background:var(--surface2);border:1.5px solid var(--border);border-radius:8px;padding:10px 12px;color:var(--text);font-family:'Mulish',sans-serif;font-size:14px;outline:none;transition:border .2s;resize:vertical}
+.remark-field input:focus,.remark-field select:focus,.remark-field textarea:focus{border-color:var(--accent2)}
+.remark-field.full{grid-column:span 2}
+.add-remark-btn{background:var(--accent2);color:#1c1a17;border:none;border-radius:9px;padding:11px 24px;font-family:'Mulish',sans-serif;font-size:14px;font-weight:700;cursor:pointer;transition:background .2s}
+.add-remark-btn:hover{background:#b8952e}
+.remarks-log{margin-top:20px}
+.remarks-log-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:12px}
+.remark-entry{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:10px}
+.remark-meta{display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap}
+.remark-area-tag{font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px}
+.remark-by{font-size:11px;color:var(--muted)}.remark-time{font-size:11px;color:var(--muted);margin-left:auto}
+.remark-text{font-size:13px;line-height:1.6}
+.no-remarks{font-size:13px;color:var(--muted);text-align:center;padding:20px}
+.empty-state{text-align:center;padding:40px 20px;color:var(--muted)}
+.empty-state .empty-icon{font-size:36px;margin-bottom:12px}
+.empty-state p{font-size:13px}
+
+/* Submitted remarks display in manager view */
+.submitted-remarks-box{background:var(--accent2-lt);border:1px solid #e8d48a;border-radius:8px;padding:14px 16px;margin-top:14px}
+.submitted-remarks-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#7a5c00;margin-bottom:6px}
+.submitted-remarks-text{font-size:13px;line-height:1.6;color:var(--text)}
+.submitted-sig-box{margin-top:10px}
+.submitted-sig-img{max-width:100%;border:1px solid var(--border);border-radius:6px;background:white;display:block}
+
+/* CHECKLIST EDITOR */
+.editor-section{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:22px;margin-bottom:20px;box-shadow:var(--shadow)}
+.editor-title{font-family:'Playfair Display',serif;font-size:16px;margin-bottom:4px;display:flex;align-items:center;gap:10px}
+.editor-subtitle{font-size:12px;color:var(--muted);margin-bottom:18px}
+.editor-cl-tabs{display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap;align-items:center}
+.editor-cl-tab{padding:8px 18px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--muted);cursor:pointer;font-family:'Mulish',sans-serif;font-size:12px;font-weight:600;transition:all .2s;display:flex;align-items:center;gap:6px}
+.editor-cl-tab.active{background:var(--accent);color:white;border-color:var(--accent)}
+.editor-cl-tab .tab-del-btn{background:none;border:none;cursor:pointer;color:inherit;font-size:13px;opacity:.6;padding:0;margin-left:4px;line-height:1}
+.editor-cl-tab .tab-del-btn:hover{opacity:1}
+.editor-cl-tab-add{padding:8px 14px;border-radius:8px;border:1.5px dashed var(--border);background:transparent;color:var(--muted);cursor:pointer;font-family:'Mulish',sans-serif;font-size:12px;font-weight:600;transition:all .2s}
+.editor-cl-tab-add:hover{border-color:var(--accent);color:var(--accent)}
+.editor-cl-panel{display:none}.editor-cl-panel.active{display:block}
+.editor-cat-header{font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);padding:12px 0 6px;border-bottom:1px solid var(--border);margin-bottom:8px}
+.editor-task-row{display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border-radius:8px;border:1px solid var(--border);margin-bottom:8px;background:var(--surface2);transition:all .2s}
+.editor-task-row:hover{border-color:var(--border2)}
+.editor-task-idx{font-size:12px;font-weight:700;color:var(--muted);min-width:22px;padding-top:2px}
+.editor-task-text{flex:1;font-size:13px;line-height:1.5;cursor:pointer;padding:2px 0}
+.editor-task-text:hover{color:var(--accent)}
+.editor-task-actions{display:flex;gap:6px;flex-shrink:0}
+.edit-task-btn,.delete-task-btn,.move-btn{background:none;border:1px solid var(--border);border-radius:6px;padding:4px 9px;cursor:pointer;font-size:12px;font-family:'Mulish',sans-serif;transition:all .2s}
+.edit-task-btn:hover{border-color:var(--accent);color:var(--accent)}
+.delete-task-btn:hover{border-color:var(--danger);color:var(--danger)}
+.move-btn:hover{border-color:var(--accent2);color:var(--accent2)}
+.editor-add-row{display:flex;gap:10px;margin-top:10px;align-items:flex-start}
+.editor-add-row textarea{flex:1;background:var(--surface);border:1.5px solid var(--border);border-radius:8px;padding:10px 12px;color:var(--text);font-family:'Mulish',sans-serif;font-size:13px;outline:none;resize:vertical;transition:border .2s;min-height:60px}
+.editor-add-row textarea:focus{border-color:var(--accent)}
+.add-task-btn{background:var(--accent);color:white;border:none;border-radius:8px;padding:10px 18px;font-family:'Mulish',sans-serif;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;transition:background .2s}
+.add-task-btn:hover{background:#245030}
+.edit-inline-wrap{display:none;margin-top:8px;gap:8px;align-items:flex-start}
+.edit-inline-wrap.show{display:flex}
+.edit-inline-textarea{flex:1;background:var(--surface);border:1.5px solid var(--accent);border-radius:7px;padding:8px 10px;color:var(--text);font-family:'Mulish',sans-serif;font-size:13px;outline:none;resize:vertical;min-height:50px}
+.edit-save-btn{background:var(--accent);color:white;border:none;border-radius:7px;padding:8px 14px;font-family:'Mulish',sans-serif;font-size:12px;font-weight:700;cursor:pointer}
+.edit-cancel-btn{background:none;border:1px solid var(--border);color:var(--muted);border-radius:7px;padding:8px 12px;font-family:'Mulish',sans-serif;font-size:12px;cursor:pointer}
+.editor-save-notice{display:none;background:var(--accent-lt);border:1px solid var(--accent);color:var(--accent);border-radius:8px;padding:10px 16px;font-size:13px;margin-top:12px;font-weight:600}
+.editor-save-notice.show{display:block}
+.warning-box{background:#fff8e6;border:1px solid #f0d060;border-radius:10px;padding:14px 18px;font-size:13px;color:#7a5c00;margin-bottom:20px;display:flex;gap:10px;align-items:flex-start}
+.warning-box .w-icon{font-size:18px;flex-shrink:0;margin-top:1px}
+
+/* Add Tab Modal */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:1000;align-items:center;justify-content:center}
+.modal-overlay.show{display:flex}
+.modal-card{background:var(--surface);border-radius:16px;padding:32px;width:480px;max-width:calc(100vw - 32px);box-shadow:var(--shadow-lg);animation:slideUp .3s ease}
+.modal-title{font-family:'Playfair Display',serif;font-size:20px;margin-bottom:6px}
+.modal-subtitle{font-size:13px;color:var(--muted);margin-bottom:24px}
+.modal-field{margin-bottom:16px}
+.modal-field label{display:block;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:8px}
+.modal-field input,.modal-field select{width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:'Mulish',sans-serif;font-size:14px;color:var(--text);background:var(--surface2);outline:none;transition:border .2s}
+.modal-field input:focus,.modal-field select:focus{border-color:var(--accent)}
+.supervisor-checkboxes{display:grid;grid-template-columns:1fr 1fr;gap:8px;max-height:200px;overflow-y:auto}
+.sup-checkbox-row{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:7px;cursor:pointer;transition:all .2s}
+.sup-checkbox-row:hover{border-color:var(--accent);background:var(--accent-lt)}
+.sup-checkbox-row input[type="checkbox"]{accent-color:var(--accent);width:15px;height:15px;flex-shrink:0}
+.sup-checkbox-row span{font-size:13px}
+.color-picker-row{display:flex;gap:8px;flex-wrap:wrap}
+.color-swatch{width:28px;height:28px;border-radius:7px;cursor:pointer;border:2px solid transparent;transition:all .2s;flex-shrink:0}
+.color-swatch.selected{border-color:var(--text);transform:scale(1.15)}
+.modal-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:24px}
+.modal-cancel-btn{background:none;border:1px solid var(--border);color:var(--muted);padding:10px 20px;border-radius:8px;font-family:'Mulish',sans-serif;font-size:14px;font-weight:600;cursor:pointer;transition:all .2s}
+.modal-cancel-btn:hover{border-color:var(--danger);color:var(--danger)}
+.modal-confirm-btn{background:var(--accent);color:white;border:none;padding:10px 24px;border-radius:8px;font-family:'Mulish',sans-serif;font-size:14px;font-weight:700;cursor:pointer;transition:background .2s}
+.modal-confirm-btn:hover{background:#245030}
+
+/* Users table */
+.users-table{width:100%;border-collapse:collapse;font-size:13px}
+.users-table th{text-align:left;padding:8px 12px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);border-bottom:1px solid var(--border)}
+.users-table td{padding:11px 12px;border-bottom:1px solid var(--border);vertical-align:middle}
+.users-table tr:last-child td{border-bottom:none}
+.users-table tr:hover td{background:var(--surface2)}
+.pin-reveal{font-family:monospace;font-weight:700;background:var(--surface2);border:1px solid var(--border);border-radius:5px;padding:3px 8px;letter-spacing:.15em;cursor:pointer;transition:all .2s;font-size:13px;user-select:none}
+.pin-reveal:hover{border-color:var(--accent);background:var(--accent-lt)}
+.role-chip{display:inline-block;font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;text-transform:uppercase;letter-spacing:.06em}
+.chip-manager{background:var(--accent2-lt);color:#7a5c00;border:1px solid #e8d48a}
+.chip-supervisor{background:var(--foh-lt);color:var(--foh-color);border:1px solid #a8d8b5}
+.chip-asst{background:var(--asst-lt);color:var(--asst-color);border:1px solid #a8d0e0}
+
+.late-badge{display:inline-block;background:#fdf6e3;color:#c8a84b;border:1px solid #f0d98a;border-radius:4px;padding:2px 8px;font-size:10px;font-weight:700;letter-spacing:.06em;margin-left:6px}
+.report-sup-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:20px;margin-bottom:18px}
+/* TOAST */
+#toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:var(--accent);color:white;padding:13px 28px;border-radius:10px;font-weight:700;font-size:14px;transition:transform .35s cubic-bezier(.34,1.56,.64,1);z-index:9999;pointer-events:none;white-space:nowrap;box-shadow:var(--shadow-lg)}
+#toast.show{transform:translateX(-50%) translateY(0)}
+#toast.gold{background:var(--accent2);color:#1c1a17}
+
+@media(max-width:680px){
+  .portal-header,.sup-body,.mgr-body{padding-left:14px;padding-right:14px}
+  .overview-grid,.sup-summary{grid-template-columns:1fr}
+  .remarks-grid,.signoff-grid,.signoff-grid.g3{grid-template-columns:1fr}
+  .checklist-tabs{overflow-x:auto}
+  .ctab{white-space:nowrap}
+  .checklist-card{padding:16px}
+  .supervisor-checkboxes{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+
+<!-- ══ LOGIN ══ -->
+<div id="screen-login" class="screen active">
+  <div class="login-card">
+    <div class="login-logo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/>
+      </svg>
+    </div>
+    <h1>Shift Operations</h1>
+    <p>Sign in with your assigned PIN to continue</p>
+    <div class="form-group">
+      <label>Select Your Name</label>
+      <select id="login-user">
+        <option value="">— Choose name —</option>
+        <optgroup label="Managers">
+          <option value="mariam">Mariam Addision</option>
+          <option value="richmond">Richmond Sewornu</option>
+        </optgroup>
+        <optgroup label="Supervisors">
+          <option value="portia">Portia Boatemaa</option>
+          <option value="ruth">Ruth Boakyewaa</option>
+          <option value="patience">Patience Boye</option>
+          <option value="michael">Michael Esegbuyota</option>
+        </optgroup>
+        <optgroup label="Assistant Supervisors">
+          <option value="evans_o">Evans Ofori-Atta Jnr.</option>
+          <option value="evans_g">Evans Gbormenyo</option>
+          <option value="sarah">Sarah Korteley Ayisah</option>
+        </optgroup>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>PIN Code</label>
+      <div class="pin-wrap">
+        <input type="password" id="login-pin" placeholder="Enter your PIN" maxlength="8" onkeydown="if(event.key==='Enter')doLogin()">
+        <button class="pin-toggle" onclick="togglePin()" title="Show/hide">👁</button>
+      </div>
+    </div>
+    <button class="login-btn" onclick="doLogin()">Sign In</button>
+    <div class="login-error" id="login-err">Incorrect PIN. Please try again.</div>
+  </div>
+</div>
+
+<!-- ══ SUPERVISOR / ASST PORTAL ══ -->
+<div id="screen-supervisor" class="screen">
+  <div class="portal-header">
+    <div class="header-brand">
+      <div class="brand-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round">
+          <path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/>
+        </svg>
+      </div>
+      <div><div class="brand-name">Shift Operations</div><div class="brand-sub" id="sup-portal-label">Supervisor Portal</div></div>
+    </div>
+    <div class="header-right">
+      <div class="date-badge" id="sup-date-badge"></div>
+      <div class="user-chip">
+        <div class="user-avatar role-supervisor" id="sup-avatar"></div>
+        <div><div class="user-name" id="sup-name-display"></div><div class="user-role" id="sup-role-display"></div></div>
+      </div>
+      <button class="logout-btn" onclick="logout()">Sign Out</button>
+    </div>
+  </div>
+  <div class="sup-body">
+    <div class="checklist-tabs" id="sup-tabs"></div>
+    <div class="checklist-card" id="sup-checklist-card">
+      <!-- panels injected dynamically -->
+    </div>
+  </div>
+</div>
+
+<!-- ══ MANAGER DASHBOARD ══ -->
+<div id="screen-manager" class="screen">
+  <div class="portal-header">
+    <div class="header-brand">
+      <div class="brand-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round">
+          <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
+          <rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
+        </svg>
+      </div>
+      <div><div class="brand-name">Shift Operations</div><div class="brand-sub">Manager Dashboard</div></div>
+    </div>
+    <div class="header-right">
+      <button class="mgr-tab-btn active" id="btn-view-overview" onclick="switchMgrView('overview')">📊 Overview</button>
+      <button class="mgr-tab-btn" id="btn-view-checklists" onclick="switchMgrView('checklists')">✅ Checklists</button>
+      <button class="mgr-tab-btn" id="btn-view-reports" onclick="switchMgrView('reports')">📋 Reports</button>
+      <button class="mgr-tab-btn" id="btn-view-editor" onclick="switchMgrView('editor')">⚙️ Edit Checklists</button>
+      <button class="mgr-tab-btn" id="btn-view-users" onclick="switchMgrView('users')">👥 Team & PINs</button>
+      <div class="user-chip">
+        <div class="user-avatar role-manager" id="mgr-avatar"></div>
+        <div><div class="user-name" id="mgr-name-display"></div><div class="user-role">Manager</div></div>
+      </div>
+      <button class="logout-btn" onclick="logout()">Sign Out</button>
+    </div>
+  </div>
+
+  <div class="mgr-body">
+
+    <!-- OVERVIEW VIEW -->
+    <div class="mgr-view active" id="view-overview">
+      <div class="mgr-date-nav">
+        <h2 id="mgr-date-title">Overview</h2>
+        <button class="nav-btn" id="nav-prev" onclick="navigateDate(-1)">‹</button>
+        <div class="date-inp-wrap"><input type="date" id="mgr-date-picker" onchange="loadManagerView()"></div>
+        <button class="nav-btn" id="nav-next" onclick="navigateDate(1)">›</button>
+      </div>
+      <div class="overview-grid" id="overview-grid-container"></div>
+      <div class="sup-summary" id="mgr-sup-summary"></div>
+      <div class="remarks-section">
+        <div class="remarks-title">Remarks & Recommendations</div>
+        <div class="remarks-grid">
+          <div class="remark-field">
+            <label>Area</label>
+            <select id="remark-area"></select>
+          </div>
+          <div class="remark-field">
+            <label>Priority</label>
+            <select id="remark-priority"><option value="Note">📝 Note</option><option value="Recommendation">💡 Recommendation</option><option value="Action Required">⚠️ Action Required</option></select>
+          </div>
+          <div class="remark-field full"><label>Remark / Recommendation</label><textarea id="remark-text" rows="3" placeholder="Write your remark or recommendation here..."></textarea></div>
+        </div>
+        <button class="add-remark-btn" onclick="addRemark()">Add Remark</button>
+        <div class="remarks-log"><div class="remarks-log-title">Remarks for this date</div><div id="remarks-log-body"></div></div>
+      </div>
+    </div>
+
+    <!-- CHECKLISTS VIEW -->
+    <div class="mgr-view" id="view-checklists">
+      <div class="mgr-date-nav">
+        <h2 id="mgr-cl-date-title">Checklists</h2>
+        <button class="nav-btn" onclick="navigateDate(-1)">‹</button>
+        <div class="date-inp-wrap"><input type="date" id="mgr-cl-date-picker" onchange="syncDatePickers('mgr-cl-date-picker')"></div>
+        <button class="nav-btn" onclick="navigateDate(1)">›</button>
+      </div>
+      <div class="checklist-tabs" id="mgr-cl-tabs" style="margin-bottom:0"></div>
+      <div class="checklist-card" id="mgr-cl-card">
+        <!-- panels injected dynamically -->
+      </div>
+    </div>
+
+    <!-- REPORTS VIEW -->
+    <div class="mgr-view" id="view-reports">
+      <div class="mgr-date-nav" style="flex-wrap:wrap;gap:12px">
+        <h2>Compliance Reports</h2>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <label style="font-size:12px;font-weight:600;color:var(--muted)">From</label>
+          <input type="date" id="report-date-from" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-family:'Mulish',sans-serif;font-size:13px">
+          <label style="font-size:12px;font-weight:600;color:var(--muted)">To</label>
+          <input type="date" id="report-date-to" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-family:'Mulish',sans-serif;font-size:13px">
+          <select id="report-supervisor-filter" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-family:'Mulish',sans-serif;font-size:13px">
+            <option value="all">All Team Members</option>
+          </select>
+          <button class="submit-btn" style="padding:8px 18px;font-size:13px" onclick="generateReport()">Generate Report</button>
+        </div>
+      </div>
+      <div id="report-output" style="padding:0 0 40px"></div>
+    </div>
+
+    <!-- EDITOR VIEW -->
+    <div class="mgr-view" id="view-editor">
+      <div class="editor-section">
+        <div class="editor-title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          Checklist Editor
+        </div>
+        <div class="editor-subtitle">Add, edit, reorder or remove tasks. Rename tabs, reassign supervisors, manage categories. Changes apply immediately.</div>
+        <div class="warning-box">
+          <span class="w-icon">⚠️</span>
+          <span>Changes made here update the master checklist for everyone. They do <strong>not</strong> alter already-submitted records for past dates.</span>
+        </div>
+        <div class="editor-cl-tabs" id="editor-tabs-row"></div>
+        <!-- Tab Settings Panel (shown per tab) -->
+        <div id="editor-tab-settings" style="display:none;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:18px 20px;margin-bottom:18px">
+          <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:14px">Tab Settings</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+            <div>
+              <label style="display:block;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:6px">Tab Name</label>
+              <input type="text" id="editor-tab-name" style="width:100%;background:var(--surface);border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;color:var(--text);font-family:'Mulish',sans-serif;font-size:13px;outline:none" placeholder="Tab name">
+            </div>
+            <div>
+              <label style="display:block;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:6px">Tab Colour</label>
+              <div id="editor-tab-color-picker" style="display:flex;gap:7px;flex-wrap:wrap;padding-top:4px"></div>
+            </div>
+          </div>
+          <div id="editor-supervisor-section" style="margin-bottom:14px">
+            <label style="display:block;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:8px">Assigned Supervisors</label>
+            <div id="editor-supervisor-checkboxes" style="display:grid;grid-template-columns:1fr 1fr;gap:6px"></div>
+          </div>
+          <div id="editor-closing-owners-section" style="display:none;margin-bottom:14px">
+            <label style="display:block;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:8px">Category Ownership</label>
+            <div id="editor-closing-owners-list" style="display:flex;flex-direction:column;gap:8px"></div>
+          </div>
+          <div style="display:flex;gap:10px;justify-content:flex-end">
+            <button onclick="saveTabSettings()" style="background:var(--accent);color:white;border:none;border-radius:8px;padding:9px 22px;font-family:'Mulish',sans-serif;font-size:13px;font-weight:700;cursor:pointer">Save Tab Settings</button>
+          </div>
+        </div>
+        <!-- Category Manager -->
+        <div id="editor-cat-manager" style="display:none;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:16px 20px;margin-bottom:18px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+            <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)">Categories</div>
+            <button onclick="openAddCategoryModal()" style="background:var(--accent);color:white;border:none;border-radius:7px;padding:6px 14px;font-family:'Mulish',sans-serif;font-size:12px;font-weight:700;cursor:pointer">+ Add Category</button>
+          </div>
+          <div id="editor-cat-list"></div>
+        </div>
+        <div id="editor-panels-container"></div>
+        <div class="editor-save-notice" id="editor-save-notice">✓ Changes saved successfully.</div>
+      </div>
+    </div>
+
+    <!-- USERS VIEW -->
+    <div class="mgr-view" id="view-users">
+      <div class="editor-section">
+        <div class="editor-title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+          Team Directory & Login PINs
+        </div>
+        <div class="editor-subtitle">Click any PIN to reveal it. Keep these confidential.</div>
+        <table class="users-table">
+          <thead><tr><th>Name</th><th>Role</th><th>Access</th><th>PIN</th></tr></thead>
+          <tbody id="users-table-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div><!-- /mgr-body -->
+</div><!-- /screen-manager -->
+
+<div class="modal-overlay" id="add-tab-modal">
+  <div class="modal-card">
+    <div class="modal-title">Add New Checklist Tab</div>
+    <div class="modal-subtitle">Create a custom checklist tab and assign supervisors who can access it.</div>
+    <div class="modal-field">
+      <label>Tab / Checklist Name</label>
+      <input type="text" id="new-tab-name" placeholder="e.g. Bar Checklist, Pastry Station…">
+    </div>
+    <div class="modal-field">
+      <label>Tab Colour</label>
+      <div class="color-picker-row" id="tab-color-picker"></div>
+    </div>
+    <div class="modal-field">
+      <label>Assign Supervisors (can also access alongside all managers)</label>
+      <div class="supervisor-checkboxes" id="tab-supervisor-checkboxes"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="modal-cancel-btn" onclick="closeAddTabModal()">Cancel</button>
+      <button class="modal-confirm-btn" onclick="confirmAddTab()">Create Tab</button>
+    </div>
+  </div>
+</div>
+
+<!-- ADD CATEGORY MODAL -->
+<div class="modal-overlay" id="add-cat-modal">
+  <div class="modal-card">
+    <div class="modal-title">Add Category</div>
+    <div class="modal-subtitle">Add a new section/category to this checklist.</div>
+    <div class="modal-field">
+      <label>Category Name</label>
+      <input type="text" id="new-cat-name" placeholder="e.g. Prep Area, Storage Room…">
+    </div>
+    <div class="modal-actions">
+      <button class="modal-cancel-btn" onclick="document.getElementById('add-cat-modal').classList.remove('show')">Cancel</button>
+      <button class="modal-confirm-btn" onclick="confirmAddCategory()">Add Category</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+
+<script type="module">
+// ════════════════════════════════
+// FIREBASE SETUP
+// ════════════════════════════════
+import { initializeApp }                     from "https://www.gstatic.com/firebasejs/12.14.0/firebase-app.js";
+import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey:            "AIzaSyCcnrg-4y3_WtWGEEgrvRr33AxbC6XWeL4",
+  authDomain:        "munchies-cleanchklist-portal.firebaseapp.com",
+  projectId:         "munchies-cleanchklist-portal",
+  storageBucket:     "munchies-cleanchklist-portal.firebasestorage.app",
+  messagingSenderId: "582213823703",
+  appId:             "1:582213823703:web:aaf35ba814caad11679492",
+  measurementId:     "G-Q4N4803RV9"
+};
+
+const _fbApp = initializeApp(firebaseConfig);
+const _db    = getFirestore(_fbApp);
+
+// ════════════════════════════════
+// USERS
+// ════════════════════════════════
+const USERS = {
+  mariam:   { name:'Mariam Addision',       role:'manager',    pin:'MGR4821', initials:'MA', access:['foh_cashier','foh_server','boh','grill','closing'] },
+  richmond: { name:'Richmond Sewornu',      role:'manager',    pin:'MGR7356', initials:'RS', access:['foh_cashier','foh_server','boh','grill','closing'] },
+  // Portia & Evans O → FOH Cashier/Reception + Closing (Front Area only)
+  portia:   { name:'Portia Boatemaa',       role:'supervisor', pin:'SUP2193', initials:'PB', access:['foh_cashier','closing'], closingSections:['Front Area'] },
+  evans_o:  { name:'Evans Ofori-Atta Jnr.', role:'asst',       pin:'AST6284', initials:'EO', access:['foh_cashier','closing'], closingSections:['Front Area'] },
+  // Ruth & Evans G → FOH Server + Closing (Serving Area + Storeroom only)
+  ruth:     { name:'Ruth Boakyewaa',        role:'supervisor', pin:'SUP5847', initials:'RB', access:['foh_server','closing'], closingSections:['Serving Area','Storeroom'] },
+  evans_g:  { name:'Evans Gbormenyo',       role:'asst',       pin:'AST3751', initials:'EG', access:['foh_server','closing'], closingSections:['Serving Area','Storeroom'] },
+  // Michael → Grill Opening + Closing (Grill Station only)
+  michael:  { name:'Michael Esegbuyota',    role:'supervisor', pin:'SUP9415', initials:'ME', access:['grill','closing'], closingSections:['Grill Station'] },
+  // Patience & Sarah → BOH Opening + Closing (Kitchen + All Stations only)
+  patience: { name:'Patience Boye',         role:'supervisor', pin:'SUP3062', initials:'PY', access:['boh','closing'], closingSections:['Kitchen','All Stations'] },
+  sarah:    { name:'Sarah Korteley Ayisah', role:'asst',       pin:'AST8043', initials:'SK', access:['boh','closing'], closingSections:['Kitchen','All Stations'] },
+  // Mrs Mintah — overview-only manager (Overview + Reports + Remarks only)
+  mintah:   { name:'Mrs Mintah',              role:'overview_manager', pin:'MGR6193', initials:'MM', access:['foh_cashier','foh_server','boh','grill','closing'] },
+};
+
+// ════════════════════════════════
+// MASTER CHECKLISTS
+// ════════════════════════════════
+const DEFAULT_CHECKLISTS = {
+  foh_cashier: {
+    label:'FOH Opening (Cashier)', color:'foh', builtIn:true,
+    supervisors: ['portia','evans_o'],
+    groups:[{ cat:'General Opening Tasks', tasks:[
+      'Inspect fingernails of all staff and ensure they wash their hands thoroughly before touching any food item — especially cooks, servers and grillers.',
+      'Inspect PPE of all cashier staff.',
+      'Clean and sanitize all workstations before prep begins.',
+      'Clean and sanitize handwash sink.',
+      'Sweep, mop and tidy up dining area before service.',
+      'Ensure all POS tablets are fully charged.',
+      'Stock display fridges with water and beverages.',
+      'Sweep and clean outside surroundings.',
+      'Confirm and ensure availability of all menu items before service.',
+    ]}]
+  },
+  foh_server: {
+    label:'FOH Opening (Server)', color:'foh2', builtIn:true,
+    supervisors: ['ruth','evans_g'],
+    groups:[{ cat:'General Opening Tasks', tasks:[
+      'Inspect fingernails of all staff and ensure they wash their hands thoroughly before touching any food item — especially cooks, servers and grillers.',
+      'Inspect PPE of all server staff.',
+      'Clean and sanitize workstations before prep begins.',
+      'Check and fill bain-marie with water if empty.',
+      'Sweep, mop and tidy up serving area before service.',
+      'Clean and sanitize chafers.',
+      'Organize and arrange service items (tongs, ladles etc).',
+      'Prep side dishes and condiments for service.',
+      'Confirm and ensure availability of all menu items before service.',
+    ]}]
+  },
+  boh: {
+    label:'BOH Opening', color:'boh', builtIn:true,
+    supervisors: ['patience','sarah'],
+    groups:[{ cat:'General Opening Tasks', tasks:[
+      'Inspect fingernails and PPE of all kitchen staff.',
+      'Sweep and tidy areas outside kitchen surroundings.',
+      'Clean and sanitize all workstations before prep begins.',
+      'Ensure kitchen staff wash their hands thoroughly before touching any food item.',
+      'Confirm all workstations are organized.',
+      'Ensure that SOPs are being adhered to.',
+    ]}]
+  },
+  grill: {
+    label:'Grill Opening', color:'grill', builtIn:true,
+    supervisors: ['michael'],
+    groups:[{ cat:'General Opening Tasks', tasks:[
+      'Inspect fingernails and PPE of grill staff.',
+      'Sweep and tidy grill station and surroundings.',
+      'Clean and sanitize grill station before prep begins.',
+      'Ensure tongs, chafers and all utensils are cleaned prior to, and after each grilling session.',
+      'Ensure grill staff wash their hands thoroughly before touching any food item.',
+      'Ensure that grilling SOPs are being adhered to.',
+    ]}]
+  },
+  closing: {
+    label:'Closing', color:'close', builtIn:true,
+    supervisors: null,
+    // closingOwners: which supervisor ids own which categories
+    closingOwners: {
+      'Front Area':    ['portia','evans_o'],
+      'Serving Area':  ['ruth','evans_g'],
+      'Storeroom':     ['ruth','evans_g'],
+      'Kitchen':       ['patience','sarah'],
+      'All Stations':  ['patience','sarah'],
+      'Grill Station': ['michael'],
+    },
+    groups:[
+      { cat:'Front Area',    tasks:['All cushions have been brought in.','Plastic chairs have been packed.','Area has been swept.','Fridges are locked.','The windows have been locked.'] },
+      { cat:'Serving Area',  tasks:['All surfaces and walls have been cleaned.','Bain-Marie has been cleaned.','Waffle machine has been cleaned.'] },
+      { cat:'Storeroom',     tasks:['Leftovers have been placed in the freezer.','All items in the freezer have been properly labelled and organised.','Storerooms have been locked.'] },
+      { cat:'Kitchen',       tasks:['The cooking area has been swept and all surfaces have been cleaned.','The walls have been wiped.','All items have been packed in.','Dustbins have been emptied.','All sweeping and cleaning has been done.','The stoves have been wiped thoroughly.','Both washrooms have been cleaned.'] },
+      { cat:'Grill Station', tasks:['The floors have been swept and mopped.'] },
+      { cat:'All Stations',  tasks:['The kitchen has been locked.','The doors are locked and the lights in the kitchen and front area are off.'] },
+    ]
+  }
+};
+
+const TAB_COLORS = [
+  {id:'custom1',hex:'#1a6b8a',lt:'#e6f4f9'},
+  {id:'custom2',hex:'#6b4ea8',lt:'#f0ebfa'},
+  {id:'custom3',hex:'#c86b1a',lt:'#fdf0e0'},
+  {id:'custom4',hex:'#1a8a5a',lt:'#e0f5ec'},
+  {id:'custom5',hex:'#8a1a4b',lt:'#fae6ee'},
+  {id:'custom6',hex:'#4a7a1a',lt:'#eaf5e0'},
+];
+
+// ════════════════════════════════
+// CLOUD STORAGE — Firebase Firestore (cross-device)
+// ════════════════════════════════
+// Firestore collection: "shift_portal"
+// Each document ID = the storage key (with colons replaced by underscores)
+// Document shape: { value: <JSON string> }
+
+const STORAGE_KEYS = {
+  masterChecklists: 'shift_master_checklists_v6',
+  checklist: (date, section) => `shift_cl:${date}:${section}`,
+  remarks: (date) => `shift_remarks:${date}`,
+};
+
+// Firestore keys can't contain '/' but colons/dots are fine.
+// We store everything in a single collection "shift_portal".
+function _fsDocId(key) {
+  // Replace characters not allowed in Firestore doc IDs
+  return key.replace(/\//g, '__');
+}
+
+async function cloudGet(key) {
+  try {
+    const ref  = doc(_db, 'shift_portal', _fsDocId(key));
+    const snap = await getDoc(ref);
+    if (snap.exists()) {
+      const raw = snap.data().value;
+      return raw != null ? JSON.parse(raw) : null;
+    }
+    return null;
+  } catch(e) {
+    console.warn('Firestore read failed:', e);
+    // Graceful fallback to localStorage so the app still works offline
+    try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : null; } catch(_) {}
+    return null;
+  }
+}
+
+async function cloudSet(key, data) {
+  try {
+    const ref = doc(_db, 'shift_portal', _fsDocId(key));
+    await setDoc(ref, { value: JSON.stringify(data) });
+    // Mirror to localStorage as an offline cache
+    try { localStorage.setItem(key, JSON.stringify(data)); } catch(_) {}
+  } catch(e) {
+    console.warn('Firestore write failed, falling back to localStorage:', e);
+    try { localStorage.setItem(key, JSON.stringify(data)); } catch(_) {}
+  }
+}
+
+async function loadMasterChecklists() {
+  const saved = await cloudGet(STORAGE_KEYS.masterChecklists);
+  if (saved) return saved;
+  return JSON.parse(JSON.stringify(DEFAULT_CHECKLISTS));
+}
+async function saveMasterChecklists(cl) {
+  await cloudSet(STORAGE_KEYS.masterChecklists, cl);
+}
+async function loadChecklist(date, section) {
+  return await cloudGet(STORAGE_KEYS.checklist(date, section));
+}
+async function saveChecklist(date, section, data) {
+  await cloudSet(STORAGE_KEYS.checklist(date, section), data);
+}
+async function loadRemarks(date) {
+  const r = await cloudGet(STORAGE_KEYS.remarks(date));
+  return r || [];
+}
+async function saveRemarks(date, remarks) {
+  await cloudSet(STORAGE_KEYS.remarks(date), remarks);
+}
+
+async function getTasksFlat(section) {
+  const cl = await loadMasterChecklists();
+  if (!cl[section]) return [];
+  const tasks = [];
+  cl[section].groups.forEach(g => g.tasks.forEach(t => tasks.push(t)));
+  return tasks;
+}
+async function countTasks(section) {
+  return (await getTasksFlat(section)).length;
+}
+async function getUserSections(user) {
+  const cl = await loadMasterChecklists();
+  if (user.role === 'manager') return Object.keys(cl);
+  const accessible = [];
+  Object.entries(cl).forEach(([key, def]) => {
+    if (def.supervisors === null) {
+      // null supervisors = all non-managers who have this key in access
+      if (user.access.includes(key)) accessible.push(key);
+    } else {
+      // explicit list — user must be in it
+      if (def.supervisors.includes(user.id)) accessible.push(key);
+    }
+  });
+  return accessible;
+}
+
+// Returns which closing categories a user can interact with (check off)
+function getUserClosingSections(user) {
+  if (user.role === 'manager') return null; // null = all
+  return user.closingSections || null;
+}
+
+// ════════════════════════════════
+// COLOUR HELPERS
+// ════════════════════════════════
+function getColorVars(colorId) {
+  const builtIn = {
+    foh:   { main:'var(--foh-color)',   lt:'var(--foh-lt)',   fill:'foh-fill',   badge:'badge-foh',   dot:'foh-dot',   checked:'',             ov:'ov-foh' },
+    foh2:  { main:'var(--foh2-color)',  lt:'var(--foh2-lt)',  fill:'foh2-fill',  badge:'badge-foh2',  dot:'foh2-dot',  checked:'foh2-checked',  ov:'ov-foh2' },
+    boh:   { main:'var(--boh-color)',   lt:'var(--boh-lt)',   fill:'boh-fill',   badge:'badge-boh',   dot:'boh-dot',   checked:'boh-checked',   ov:'ov-boh' },
+    close: { main:'var(--close-color)', lt:'var(--close-lt)', fill:'close-fill', badge:'badge-close', dot:'close-dot', checked:'close-checked', ov:'ov-close' },
+    grill: { main:'var(--grill-color)', lt:'var(--grill-lt)', fill:'grill-fill', badge:'badge-grill', dot:'grill-dot', checked:'grill-checked', ov:'ov-grill' },
+  };
+  if (builtIn[colorId]) return builtIn[colorId];
+  const custom = TAB_COLORS.find(c => c.id === colorId);
+  if (custom) return { main:custom.hex, lt:custom.lt, fill:'', badge:'', dot:'', checked:'', ov:'', hex:custom.hex, hexLt:custom.lt };
+  return builtIn.foh;
+}
+
+// ════════════════════════════════
+// SHIFT TIME WINDOWS
+// ════════════════════════════════
+const SHIFT_WINDOWS = {
+  morning:   { label:'Morning',   primary: { start:'09:00', end:'12:00' } },
+  afternoon: { label:'Afternoon', primary: { start:'14:00', end:'17:00' } },
+  closing:   { label:'Closing',   primary: { start:'23:30', end:'02:30' } },
+};
+const AFTERNOON_CATCHUP = { start:'14:00', end:'17:00' };
+const SECTION_SHIFT = {
+  foh_cashier: 'morning', foh_server: 'morning',
+  boh: 'morning', grill: 'morning', closing: 'closing',
+};
+function timeToMins(t) { const [h,m]=t.split(':').map(Number); return h*60+m; }
+function getCurrentTimeMins() { const n=new Date(); return n.getHours()*60+n.getMinutes(); }
+function checkShiftWindow(section) {
+  const shiftKey = SECTION_SHIFT[section] || 'morning';
+  const win = SHIFT_WINDOWS[shiftKey];
+  const nowMins = getCurrentTimeMins();
+  function inWindow(start, end) {
+    const s=timeToMins(start), e=timeToMins(end);
+    if (e < s) return nowMins >= s || nowMins <= e;
+    return nowMins >= s && nowMins <= e;
+  }
+  const inPrimary = inWindow(win.primary.start, win.primary.end);
+  const inCatchup = inWindow(AFTERNOON_CATCHUP.start, AFTERNOON_CATCHUP.end);
+  const allowed   = inPrimary || inCatchup;
+  const late      = !inPrimary && inCatchup;
+  return { allowed, late, windowLabel: win.label,
+           primaryLabel: `${win.primary.start}–${win.primary.end}`,
+           catchupLabel: `${AFTERNOON_CATCHUP.start}–${AFTERNOON_CATCHUP.end}` };
+}
+
+// ════════════════════════════════
+// STATE
+// ════════════════════════════════
+let currentUser = null;
+let currentDate = getTodayStr();
+let activeClTab = null;
+let activeMgrClTab = null;
+let supState = {};
+let mgrState = {};
+let activeEditorSection = 'foh_cashier';
+
+const START_DATE = '2026-05-25';
+
+// ════════════════════════════════
+// HELPERS
+// ════════════════════════════════
+function getTodayStr() { return new Date().toISOString().split('T')[0]; }
+function getTimeStr()  { return new Date().toTimeString().slice(0,5); }
+function formatDateNice(ds) {
+  const d = new Date(ds+'T00:00:00');
+  return d.toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+}
+
+// ════════════════════════════════
+// LOGIN
+// ════════════════════════════════
+function togglePin() {
+  const i = document.getElementById('login-pin');
+  i.type = i.type === 'password' ? 'text' : 'password';
+}
+async function doLogin() {
+  const uid = document.getElementById('login-user').value;
+  const pin = document.getElementById('login-pin').value.replace(/-/g,'').toUpperCase();
+  const err = document.getElementById('login-err');
+  if (!uid) { err.textContent='Please select your name.'; err.classList.add('show'); return; }
+  const u = USERS[uid];
+  if (!u || pin !== u.pin.replace(/-/g,'').toUpperCase()) {
+    err.textContent='Incorrect PIN. Please try again.'; err.classList.add('show');
+    document.getElementById('login-pin').value=''; return;
+  }
+  err.classList.remove('show');
+  currentUser = {id:uid, ...u};
+
+  // Show loading overlay while fetching cloud data
+  showSyncOverlay(true);
+  if (u.role === 'manager' || u.role === 'overview_manager') await enterManager();
+  else await enterSupervisor();
+  showSyncOverlay(false);
+}
+function logout() {
+  currentUser = null;
+  document.getElementById('login-user').value='';
+  document.getElementById('login-pin').value='';
+  showScreen('login');
+}
+function showScreen(n) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById('screen-'+n).classList.add('active');
+}
+
+// ════════════════════════════════
+// SYNC OVERLAY
+// ════════════════════════════════
+function showSyncOverlay(show) {
+  let overlay = document.getElementById('sync-overlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'sync-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(28,26,23,0.55);z-index:9998;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px';
+    overlay.innerHTML = `<div style="width:38px;height:38px;border:3px solid rgba(255,255,255,0.2);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite"></div><div style="color:white;font-family:'Mulish',sans-serif;font-size:14px;font-weight:600;letter-spacing:.03em">Syncing from cloud…</div>`;
+    const style = document.createElement('style');
+    style.textContent = '@keyframes spin{to{transform:rotate(360deg)}}';
+    document.head.appendChild(style);
+    document.body.appendChild(overlay);
+  }
+  overlay.style.display = show ? 'flex' : 'none';
+}
+
+// ════════════════════════════════
+// SIGNATURE PAD
+// ════════════════════════════════
+const sigPads = {};
+
+function initSigPad(canvasId, section, mode) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const key = section+'-'+mode;
+  sigPads[key] = { canvas, ctx, drawing:false, hasData:false };
+
+  function getPos(e) {
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    if (e.touches) return { x:(e.touches[0].clientX-rect.left)*scaleX, y:(e.touches[0].clientY-rect.top)*scaleY };
+    return { x:(e.clientX-rect.left)*scaleX, y:(e.clientY-rect.top)*scaleY };
+  }
+  function startDraw(e) {
+    e.preventDefault();
+    if (canvas.classList.contains('readonly')) return;
+    sigPads[key].drawing = true;
+    const pos = getPos(e); ctx.beginPath(); ctx.moveTo(pos.x, pos.y);
+  }
+  function draw(e) {
+    e.preventDefault();
+    if (!sigPads[key].drawing) return;
+    const pos = getPos(e);
+    ctx.lineWidth=2; ctx.lineCap='round'; ctx.strokeStyle='#1c1a17';
+    ctx.lineTo(pos.x, pos.y); ctx.stroke();
+    sigPads[key].hasData = true;
+  }
+  function endDraw() { sigPads[key].drawing = false; }
+
+  canvas.addEventListener('mousedown', startDraw);
+  canvas.addEventListener('mousemove', draw);
+  canvas.addEventListener('mouseup', endDraw);
+  canvas.addEventListener('mouseleave', endDraw);
+  canvas.addEventListener('touchstart', startDraw, {passive:false});
+  canvas.addEventListener('touchmove', draw, {passive:false});
+  canvas.addEventListener('touchend', endDraw);
+}
+
+function clearSigPad(section, mode) {
+  const key = section+'-'+mode;
+  const pad = sigPads[key];
+  if (!pad) return;
+  pad.ctx.clearRect(0, 0, pad.canvas.width, pad.canvas.height);
+  pad.hasData = false;
+}
+function getSigDataURL(section, mode) {
+  const key = section+'-'+mode;
+  const pad = sigPads[key];
+  if (!pad || !pad.hasData) return null;
+  return pad.canvas.toDataURL('image/png');
+}
+function loadSigIntoCanvas(canvasId, dataURL) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas || !dataURL) return;
+  const ctx = canvas.getContext('2d');
+  const img = new Image();
+  img.onload = () => ctx.drawImage(img, 0, 0);
+  img.src = dataURL;
+}
+
+// ════════════════════════════════
+// SUPERVISOR VIEW
+// ════════════════════════════════
+async function enterSupervisor() {
+  const u = currentUser;
+  document.getElementById('sup-name-display').textContent = u.name;
+  const roleLabel = u.role==='asst' ? 'Assistant Supervisor' : 'Supervisor';
+  document.getElementById('sup-portal-label').textContent = roleLabel + ' Portal';
+  const av = document.getElementById('sup-avatar');
+  av.textContent = u.initials;
+  av.className = 'user-avatar ' + (u.role==='asst' ? 'role-asst' : 'role-supervisor');
+  const today = getTodayStr();
+  document.getElementById('sup-date-badge').textContent = formatDateNice(today);
+
+  const cl = await loadMasterChecklists();
+  // inject custom CSS for any custom tabs
+  Object.entries(cl).forEach(([key, def]) => {
+    if (!def.builtIn) {
+      const cv = getColorVars(def.color);
+      if (cv.hex) injectCustomColorCSS(def.color, cv.hex, cv.hexLt);
+    }
+  });
+
+  const sections = await getUserSections({...u, id:u.id});
+
+  // Build tabs
+  const tabsContainer = document.getElementById('sup-tabs');
+  tabsContainer.innerHTML = '';
+  sections.forEach((key, i) => {
+    const def = cl[key];
+    const cv = getColorVars(def.color);
+    const total = getTasksFlatSync(cl, key).length;
+    const btn = document.createElement('button');
+    btn.className = 'ctab'+(i===0?' active':'');
+    btn.dataset.tab = key;
+    const dotStyle = cv.dot ? `class="ctab-dot ${cv.dot}"` : `class="ctab-dot" style="background:${cv.main}"`;
+    btn.innerHTML = `<span ${dotStyle}></span>${def.label}<span class="ctab-count" id="ctab-count-${key}">0/${total}</span>`;
+    btn.onclick = () => switchSupTab(key);
+    tabsContainer.appendChild(btn);
+  });
+
+  // Build panels
+  const card = document.getElementById('sup-checklist-card');
+  card.innerHTML = '';
+  sections.forEach((key, i) => {
+    const def = cl[key];
+    const cv = getColorVars(def.color);
+    const panel = document.createElement('div');
+    panel.className = 'cl-panel'+(i===0?' active':'');
+    panel.id = 'cl-'+key;
+    const total = getTasksFlatSync(cl, key).length;
+    const fillCls = cv.fill || '';
+    const badgeCls = cv.badge || '';
+    const badgeStyle = badgeCls ? '' : `style="background:${cv.hexLt};color:${cv.main}"`;
+    const fillStyle = fillCls ? '' : `style="background:${cv.main}"`;
+    panel.innerHTML = `
+      <div class="cl-header">
+        <div><div class="cl-title">Opening Checklist — ${def.label}</div><div class="cl-subtitle">Morning Shift · Pre-Service</div></div>
+        <span class="cl-badge ${badgeCls}" ${badgeStyle}>${def.label}</span>
+      </div>
+      <div class="cl-progress">
+        <div class="cl-prog-track"><div class="cl-prog-fill ${fillCls}" id="prog-${key}" ${fillStyle}></div></div>
+        <div class="cl-prog-label"><b id="prog-${key}-num">0</b> / <span id="prog-${key}-total">${total}</span> tasks</div>
+      </div>
+      <div id="tasks-${key}-list"></div>
+      <div class="remarks-area-block">
+        <div class="remarks-area-title">Supervisor Remarks</div>
+        <textarea class="remarks-area-textarea" id="remarks-${key}-sup" rows="3" placeholder="Add any remarks, observations or issues for this shift…"></textarea>
+      </div>
+      <div class="signoff-block">
+        <div class="signoff-title">Shift Sign-Off</div>
+        <div class="signoff-grid g3">
+          <div class="sf-field"><label>Date</label><input type="date" id="${key}-date" value="${getTodayStr()}"></div>
+          <div class="sf-field"><label>Time</label><input type="time" id="${key}-time" value="${getTimeStr()}"></div>
+          <div class="sf-field"><label>Shift Leader Name</label><input type="text" id="${key}-leader" placeholder="Full name"></div>
+          <div class="sf-field"><label>Supervisor Name</label><input type="text" id="${key}-sup-name" value="${currentUser.name}" readonly></div>
+          <div class="sf-field" style="grid-column:span 2">
+            <label>Supervisor Signature</label>
+            <div class="sig-pad-wrap">
+              <canvas class="sig-pad-canvas" id="sigpad-${key}-sup" width="600" height="100"></canvas>
+              <div class="sig-pad-actions">
+                <span class="sig-hint">Sign using your finger or mouse</span>
+                <button class="sig-clear-btn" onclick="clearSigPad('${key}','sup')">Clear</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="submit-row">
+          <span class="warn-txt" id="${key}-warn">⚠ Complete all tasks before submitting</span>
+          <div class="submitted-badge" id="${key}-submitted">✓ ${def.label} Checklist Submitted</div>
+          <button class="submit-btn" id="${key}-submit-btn" onclick="submitChecklist('${key}')">Submit ${def.label} Checklist</button>
+        </div>
+      </div>`;
+    card.appendChild(panel);
+    supState[key] = {};
+  });
+
+  activeClTab = sections[0];
+
+  // Init sig pads and load saved cloud state
+  for (const key of sections) {
+    initSigPad(`sigpad-${key}-sup`, key, 'sup');
+    const saved = await loadChecklist(getTodayStr(), key);
+    supState[key] = saved?.tasks || {};
+    if (saved?.remarks) {
+      const el = document.getElementById(`remarks-${key}-sup`);
+      if (el) el.value = saved.remarks;
+    }
+    await renderChecklist(key, 'sup');
+    checkSubmittedState(key, saved);
+    if (saved?.signature) {
+      loadSigIntoCanvas(`sigpad-${key}-sup`, saved.signature);
+      const canvas = document.getElementById(`sigpad-${key}-sup`);
+      if (canvas) canvas.classList.add('readonly');
+      const clearBtn = canvas?.closest('.sig-pad-wrap')?.querySelector('.sig-clear-btn');
+      if (clearBtn) clearBtn.style.display = 'none';
+    }
+  }
+  showScreen('supervisor');
+}
+
+function switchSupTab(key) {
+  activeClTab = key;
+  document.querySelectorAll('#sup-tabs .ctab').forEach(b => b.classList.toggle('active', b.dataset.tab===key));
+  document.querySelectorAll('#sup-checklist-card .cl-panel').forEach(p => p.classList.toggle('active', p.id==='cl-'+key));
+}
+
+// ════════════════════════════════
+// CHECKLIST RENDERING
+// ════════════════════════════════
+// Sync helper — use already-loaded cl object to avoid extra awaits in tight loops
+function getTasksFlatSync(cl, section) {
+  if (!cl[section]) return [];
+  const tasks = [];
+  cl[section].groups.forEach(g => g.tasks.forEach(t => tasks.push(t)));
+  return tasks;
+}
+
+async function renderChecklist(section, mode) {
+  const containerId = mode==='mgr' ? `mgr-tasks-${section}-list` : `tasks-${section}-list`;
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  container.innerHTML = '';
+  const cl = await loadMasterChecklists();
+  if (!cl[section]) return;
+  const st = mode==='mgr' ? (mgrState[section]||{}) : (supState[section]||{});
+  const date = mode==='mgr' ? currentDate : getTodayStr();
+  const savedData = await loadChecklist(date, section);
+  const submitted = !!(savedData && savedData.submitted);
+  const cv = getColorVars(cl[section].color);
+
+  // Closing section restriction — which categories can this user check off?
+  const allowedCats = (mode==='sup' && section==='closing' && currentUser.role!=='manager')
+    ? getUserClosingSections(currentUser)
+    : null; // null = all allowed
+
+  let gIdx = 0;
+  cl[section].groups.forEach(group => {
+    const catAllowed = !allowedCats || allowedCats.includes(group.cat);
+    if (group.cat) {
+      const done = group.tasks.filter((_,i) => st[gIdx+i]?.checked).length;
+      const hdr = document.createElement('div');
+      hdr.className = 'cat-header';
+      const lockIcon = (!catAllowed) ? ' <span style="font-size:10px;opacity:.5;margin-left:4px">🔒 not your section</span>' : '';
+      hdr.innerHTML = `${group.cat}${lockIcon}<span class="cat-line"></span><span>${done}/${group.tasks.length}</span>`;
+      container.appendChild(hdr);
+    }
+    group.tasks.forEach(task => {
+      const idx = gIdx;
+      const s = st[idx] || {checked:false, initials:''};
+      const taskReadOnly = (submitted && mode!=='mgr') || !catAllowed;
+      const row = document.createElement('div');
+      const checkedColorCls = cv.checked ? ' '+cv.checked : '';
+      row.className = 'task-row'+(s.checked?' checked'+checkedColorCls:'')+(taskReadOnly?' task-locked':'');
+      if (!catAllowed) row.style.opacity = '0.55';
+      row.innerHTML = `
+        <div class="cb-box" ${s.checked&&!cv.fill?`style="background:${cv.main};border-color:${cv.main}"`:''}> 
+          <svg class="cb-check" width="12" height="9" viewBox="0 0 12 9" fill="none">
+            <path d="M1 4.5L4.5 8L11 1" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <span class="task-text">${task}</span>
+        <input class="initials-inp" type="text" maxlength="4" placeholder="Init." value="${s.initials}" ${taskReadOnly?'readonly':''}
+          onclick="event.stopPropagation()"
+          oninput="updateInitials('${section}','${mode}',${idx},this.value)">
+      `;
+      if (!taskReadOnly) row.addEventListener('click', () => toggleTask(section, mode, idx));
+      container.appendChild(row);
+      gIdx++;
+    });
+  });
+  await updateProgress(section, mode, cl);
+  if (mode==='sup') checkSubmittedState(section, savedData);
+  if (mode==='mgr') checkMgrSubmittedState(section, savedData);
+  const totalEl = document.getElementById((mode==='mgr'?'mgr-':'')+'prog-'+section+'-total');
+  if (totalEl) totalEl.textContent = getTasksFlatSync(cl, section).length;
+}
+
+async function isSubmitted(date, section) {
+  const d = await loadChecklist(date, section);
+  return d && d.submitted;
+}
+
+function toggleTask(section, mode, idx) {
+  const st = mode==='mgr' ? mgrState : supState;
+  if (!st[section]) st[section] = {};
+  if (!st[section][idx]) st[section][idx] = {checked:false, initials:''};
+  st[section][idx].checked = !st[section][idx].checked;
+  if (mode==='sup') autoSave(section);
+  else mgrAutoSave(section);
+  renderChecklist(section, mode);
+}
+
+function updateInitials(section, mode, idx, val) {
+  const st = mode==='mgr' ? mgrState : supState;
+  if (!st[section]) st[section] = {};
+  if (!st[section][idx]) st[section][idx] = {checked:false, initials:''};
+  st[section][idx].initials = val.toUpperCase();
+  if (mode==='sup') autoSave(section);
+  else mgrAutoSave(section);
+}
+
+async function autoSave(section) {
+  const today = getTodayStr();
+  const ex = (await loadChecklist(today, section)) || {};
+  ex.tasks = supState[section];
+  ex.userId = currentUser.id;
+  ex.userName = currentUser.name;
+  const remEl = document.getElementById(`remarks-${section}-sup`);
+  if (remEl) ex.remarks = remEl.value;
+  await saveChecklist(today, section, ex);
+}
+
+async function mgrAutoSave(section) {
+  const ex = (await loadChecklist(currentDate, section)) || {};
+  ex.tasks = mgrState[section];
+  ex.userId = currentUser.id;
+  ex.userName = currentUser.name;
+  const remEl = document.getElementById(`mgr-remarks-${section}`);
+  if (remEl) ex.remarks = remEl.value;
+  await saveChecklist(currentDate, section, ex);
+}
+
+async function updateProgress(section, mode, clObj) {
+  const cl = clObj || await loadMasterChecklists();
+  const total = getTasksFlatSync(cl, section).length;
+  const st = mode==='mgr' ? (mgrState[section]||{}) : (supState[section]||{});
+  const done = Object.values(st).filter(v => v.checked).length;
+  const pct = total ? Math.round(done/total*100) : 0;
+  const fillId = mode==='mgr' ? `mgr-prog-${section}` : `prog-${section}`;
+  const numId = mode==='mgr' ? `mgr-prog-${section}-num` : `prog-${section}-num`;
+  const fill = document.getElementById(fillId);
+  const num = document.getElementById(numId);
+  if (fill) fill.style.width = pct+'%';
+  if (num) num.textContent = done;
+  if (mode==='sup') {
+    const tabCount = document.getElementById('ctab-count-'+section);
+    if (tabCount) tabCount.textContent = `${done}/${total}`;
+  }
+}
+
+function checkSubmittedState(section, savedData) {
+  const submitted = !!(savedData && savedData.submitted);
+  const btn = document.getElementById(section+'-submit-btn');
+  const badge = document.getElementById(section+'-submitted');
+  if (btn) btn.style.display = submitted ? 'none' : 'inline-flex';
+  if (badge) badge.classList.toggle('show', submitted);
+  const remEl = document.getElementById(`remarks-${section}-sup`);
+  if (remEl && submitted) remEl.readOnly = true;
+}
+
+function checkMgrSubmittedState(section, savedData) {
+  const submitted = !!(savedData && savedData.submitted);
+  const btn = document.getElementById('mgr-'+section+'-submit-btn');
+  const badge = document.getElementById('mgr-'+section+'-submitted');
+  if (btn) btn.style.display = submitted ? 'none' : 'inline-flex';
+  if (badge) badge.classList.toggle('show', submitted);
+}
+
+async function submitChecklist(section) {
+  // ── Time window check ──────────────────────────────────────────────────
+  const tw = checkShiftWindow(section);
+  if (!tw.allowed) {
+    const warnEl = document.getElementById(section+'-warn');
+    warnEl.textContent = `⏰ Outside submission window. Allowed: ${tw.primaryLabel} or ${tw.catchupLabel}`;
+    warnEl.classList.add('show');
+    setTimeout(() => { warnEl.classList.remove('show'); warnEl.textContent = '⚠ Complete all tasks before submitting'; }, 5000);
+    return;
+  }
+  const cl = await loadMasterChecklists();
+  const warn = document.getElementById(section+'-warn');
+
+  // For closing, only count tasks the user is responsible for
+  let total, done;
+  if (section === 'closing' && currentUser.role !== 'manager') {
+    const allowedCats = getUserClosingSections(currentUser);
+    if (allowedCats) {
+      let aTotal = 0, aDone = 0, gIdx = 0;
+      cl[section].groups.forEach(g => {
+        const cat = g.cat;
+        g.tasks.forEach((_, ti) => {
+          if (!allowedCats || allowedCats.includes(cat)) {
+            aTotal++;
+            if (supState[section]?.[gIdx]?.checked) aDone++;
+          }
+          gIdx++;
+        });
+      });
+      total = aTotal; done = aDone;
+    } else {
+      total = getTasksFlatSync(cl, section).length;
+      done = Object.values(supState[section]||{}).filter(v => v.checked).length;
+    }
+  } else {
+    total = getTasksFlatSync(cl, section).length;
+    done = Object.values(supState[section]||{}).filter(v => v.checked).length;
+  }
+
+  if (done < total) { warn.classList.add('show'); setTimeout(()=>warn.classList.remove('show'),3500); return; }
+  const sigData = getSigDataURL(section, 'sup');
+  if (!sigData) {
+    warn.textContent = '⚠ Please draw your signature before submitting';
+    warn.classList.add('show');
+    setTimeout(()=>{warn.classList.remove('show');warn.textContent='⚠ Complete all tasks before submitting';},3500);
+    return;
+  }
+  showSyncOverlay(true);
+  const today = getTodayStr();
+  const ex = (await loadChecklist(today, section)) || {};
+  const remEl = document.getElementById(`remarks-${section}-sup`);
+  const mergedTasks = Object.assign({}, ex.tasks || {}, supState[section]);
+  const actualNow = new Date();
+  Object.assign(ex, {
+    tasks: mergedTasks, submitted:true,
+    submittedAt: actualNow.toISOString(),
+    submittedTime: actualNow.toTimeString().slice(0,5),
+    isLate: tw.late,
+    shiftWindow: tw.windowLabel,
+    submittedBy: currentUser.id, userName: currentUser.name, userId: currentUser.id,
+    shiftLeader: document.getElementById(section+'-leader')?.value||'',
+    signature: sigData,
+    remarks: remEl?.value || ''
+  });
+  await saveChecklist(today, section, ex);
+  await renderChecklist(section, 'sup');
+  if (remEl) remEl.readOnly = true;
+  const canvas = document.getElementById(`sigpad-${section}-sup`);
+  if (canvas) canvas.classList.add('readonly');
+  const clearBtn = canvas?.closest('.sig-pad-wrap')?.querySelector('.sig-clear-btn');
+  if (clearBtn) clearBtn.style.display = 'none';
+  showSyncOverlay(false);
+  showToast('✓ '+(cl[section]?.label||section)+' checklist submitted!');
+}
+
+async function mgrSubmitChecklist(section) {
+  const cl = await loadMasterChecklists();
+  const total = getTasksFlatSync(cl, section).length;
+  const done = Object.values(mgrState[section]||{}).filter(v => v.checked).length;
+  const warn = document.getElementById('mgr-'+section+'-warn');
+  if (done < total) { warn.classList.add('show'); setTimeout(()=>warn.classList.remove('show'),3500); return; }
+  const sigData = getSigDataURL(section, 'mgr');
+  if (!sigData) {
+    warn.textContent = '⚠ Please draw your signature';
+    warn.classList.add('show');
+    setTimeout(()=>{warn.classList.remove('show');warn.textContent='⚠ Complete all tasks before submitting';},3500);
+    return;
+  }
+  showSyncOverlay(true);
+  const ex = (await loadChecklist(currentDate, section)) || {};
+  const remEl = document.getElementById(`mgr-remarks-${section}`);
+  Object.assign(ex, {
+    tasks: mgrState[section], submitted:true,
+    submittedAt: new Date().toISOString(),
+    submittedBy: currentUser.id, userName: currentUser.name, userId: currentUser.id,
+    shiftLeader: document.getElementById('mgr-'+section+'-leader')?.value||'',
+    signature: sigData,
+    remarks: remEl?.value || ''
+  });
+  await saveChecklist(currentDate, section, ex);
+  await renderChecklist(section, 'mgr');
+  showSyncOverlay(false);
+  showToast('✓ '+(cl[section]?.label||section)+' submitted!');
+}
+
+// ════════════════════════════════
+// MANAGER
+// ════════════════════════════════
+async function enterManager() {
+  document.getElementById('mgr-name-display').textContent = currentUser.name;
+  document.getElementById('mgr-avatar').textContent = currentUser.initials;
+  // Show correct role label
+  const roleLabel = currentUser.role === 'overview_manager' ? 'Overview Manager' : 'Manager';
+  const roleEl = document.querySelector('#screen-manager .user-role');
+  if (roleEl) roleEl.textContent = roleLabel;
+  // Restrict overview_manager to Overview + Reports only
+  const isOverviewOnly = currentUser.role === 'overview_manager';
+  ['btn-view-checklists','btn-view-editor','btn-view-users'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = isOverviewOnly ? 'none' : '';
+  });
+  currentDate = getTodayStr();
+  const picker = document.getElementById('mgr-date-picker');
+  picker.value = currentDate; picker.min = START_DATE; picker.max = getTodayStr();
+  const picker2 = document.getElementById('mgr-cl-date-picker');
+  picker2.value = currentDate; picker2.min = START_DATE; picker2.max = getTodayStr();
+
+  const cl = await loadMasterChecklists();
+  // inject CSS for custom tabs
+  Object.entries(cl).forEach(([,def]) => {
+    if (!def.builtIn) {
+      const cv = getColorVars(def.color);
+      if (cv.hex) injectCustomColorCSS(def.color, cv.hex, cv.hexLt);
+    }
+  });
+
+  await buildMgrClView();
+  await loadManagerView();
+  if (!isOverviewOnly) { await buildEditorView(); buildUsersTable(); }
+  await buildRemarkAreaSelect();
+  await initReportFilters();
+  switchMgrView('overview');
+  showScreen('manager');
+}
+
+function switchMgrView(view) {
+  document.querySelectorAll('.mgr-view').forEach(v => v.classList.remove('active'));
+  document.getElementById('view-'+view).classList.add('active');
+  document.querySelectorAll('.mgr-tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('btn-view-'+view)?.classList.add('active');
+}
+
+async function buildRemarkAreaSelect() {
+  const sel = document.getElementById('remark-area');
+  if (!sel) return;
+  const cl = await loadMasterChecklists();
+  sel.innerHTML = Object.entries(cl).map(([k,d]) => `<option value="${d.label}">${d.label}</option>`).join('') + '<option value="General">General</option>';
+}
+
+async function buildMgrClView() {
+  const cl = await loadMasterChecklists();
+  const sections = Object.keys(cl);
+
+  const container = document.getElementById('mgr-cl-tabs');
+  container.innerHTML = '';
+  sections.forEach((key, i) => {
+    const def = cl[key];
+    const cv = getColorVars(def.color);
+    const total = getTasksFlatSync(cl, key).length;
+    const btn = document.createElement('button');
+    btn.className = 'ctab'+(i===0?' active':'');
+    btn.dataset.tab = key;
+    const dotStyle = cv.dot ? `class="ctab-dot ${cv.dot}"` : `class="ctab-dot" style="background:${cv.main}"`;
+    btn.innerHTML = `<span ${dotStyle}></span>${def.label}<span class="ctab-count" id="mgr-ctab-count-${key}">0/${total}</span>`;
+    btn.onclick = () => {
+      activeMgrClTab = key;
+      document.querySelectorAll('#mgr-cl-tabs .ctab').forEach(b => b.classList.toggle('active', b.dataset.tab===key));
+      document.querySelectorAll('#mgr-cl-card .cl-panel').forEach(p => p.classList.toggle('active', p.id==='mgr-cl-'+key));
+    };
+    container.appendChild(btn);
+  });
+
+  const card = document.getElementById('mgr-cl-card');
+  card.innerHTML = '';
+  sections.forEach((key, i) => {
+    const def = cl[key];
+    const cv = getColorVars(def.color);
+    const panel = document.createElement('div');
+    panel.className = 'cl-panel'+(i===0?' active':'');
+    panel.id = 'mgr-cl-'+key;
+    const total = getTasksFlatSync(cl, key).length;
+    const fillCls = cv.fill || '';
+    const badgeCls = cv.badge || '';
+    const badgeStyle = badgeCls ? '' : `style="background:${cv.hexLt};color:${cv.main}"`;
+    const fillStyle = fillCls ? '' : `style="background:${cv.main}"`;
+    panel.innerHTML = `
+      <div class="cl-header">
+        <div><div class="cl-title">Opening Checklist — ${def.label}</div><div class="cl-subtitle">Morning Shift · Pre-Service</div></div>
+        <span class="cl-badge ${badgeCls}" ${badgeStyle}>${def.label}</span>
+      </div>
+      <div class="cl-progress">
+        <div class="cl-prog-track"><div class="cl-prog-fill ${fillCls}" id="mgr-prog-${key}" ${fillStyle}></div></div>
+        <div class="cl-prog-label"><b id="mgr-prog-${key}-num">0</b> / <span id="mgr-prog-${key}-total">${total}</span> tasks</div>
+      </div>
+      <div id="mgr-tasks-${key}-list"></div>
+      <div class="remarks-area-block">
+        <div class="remarks-area-title">Supervisor Remarks</div>
+        <textarea class="remarks-area-textarea" id="mgr-remarks-${key}" rows="3" placeholder="Add remarks…" oninput="mgrAutoSave('${key}')"></textarea>
+      </div>
+      <div class="signoff-block">
+        <div class="signoff-title">Shift Sign-Off</div>
+        <div class="signoff-grid g3">
+          <div class="sf-field"><label>Date</label><input type="date" id="mgr-${key}-date"></div>
+          <div class="sf-field"><label>Time</label><input type="time" id="mgr-${key}-time"></div>
+          <div class="sf-field"><label>Shift Leader Name</label><input type="text" id="mgr-${key}-leader" placeholder="Full name"></div>
+          <div class="sf-field"><label>Supervisor Name</label><input type="text" id="mgr-${key}-sup-name"></div>
+          <div class="sf-field" style="grid-column:span 2">
+            <label>Manager Signature</label>
+            <div class="sig-pad-wrap">
+              <canvas class="sig-pad-canvas" id="sigpad-${key}-mgr" width="600" height="100"></canvas>
+              <div class="sig-pad-actions">
+                <span class="sig-hint">Sign using your finger or mouse</span>
+                <button class="sig-clear-btn" onclick="clearSigPad('${key}','mgr')">Clear</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="submit-row">
+          <span class="warn-txt" id="mgr-${key}-warn">⚠ Complete all tasks before submitting</span>
+          <div class="submitted-badge" id="mgr-${key}-submitted">✓ ${def.label} Submitted</div>
+          <button class="submit-btn" id="mgr-${key}-submit-btn" onclick="mgrSubmitChecklist('${key}')">Submit ${def.label} Checklist</button>
+        </div>
+      </div>`;
+    card.appendChild(panel);
+    if (!mgrState[key]) mgrState[key] = {};
+  });
+
+  activeMgrClTab = sections[0];
+  sections.forEach(key => initSigPad(`sigpad-${key}-mgr`, key, 'mgr'));
+}
+
+async function syncDatePickers(srcId) {
+  const val = document.getElementById(srcId).value;
+  currentDate = val;
+  document.getElementById('mgr-date-picker').value = val;
+  document.getElementById('mgr-cl-date-picker').value = val;
+  showSyncOverlay(true);
+  await loadManagerView();
+  showSyncOverlay(false);
+}
+
+async function navigateDate(delta) {
+  const d = new Date(currentDate+'T00:00:00');
+  d.setDate(d.getDate()+delta);
+  const ns = d.toISOString().split('T')[0];
+  if (ns < START_DATE || ns > getTodayStr()) return;
+  currentDate = ns;
+  document.getElementById('mgr-date-picker').value = ns;
+  document.getElementById('mgr-cl-date-picker').value = ns;
+  showSyncOverlay(true);
+  await loadManagerView();
+  showSyncOverlay(false);
+}
+
+async function loadManagerView() {
+  currentDate = document.getElementById('mgr-date-picker').value || getTodayStr();
+  document.getElementById('mgr-date-title').textContent = formatDateNice(currentDate);
+  document.getElementById('mgr-cl-date-title').textContent = 'Checklists — '+formatDateNice(currentDate);
+  document.getElementById('nav-prev').disabled = currentDate <= START_DATE;
+  document.getElementById('nav-next').disabled = currentDate >= getTodayStr();
+  await updateOverviewCards();
+  await buildSupSummary();
+  await renderRemarks();
+  const cl = await loadMasterChecklists();
+  for (const s of Object.keys(cl)) {
+    const saved = await loadChecklist(currentDate, s);
+    mgrState[s] = saved?.tasks || {};
+    const dn = document.getElementById('mgr-'+s+'-sup-name'); if (dn) dn.value = currentUser.name;
+    const dd = document.getElementById('mgr-'+s+'-date'); if (dd) dd.value = currentDate;
+    const dt = document.getElementById('mgr-'+s+'-time'); if (dt) dt.value = getTimeStr();
+    const remEl = document.getElementById(`mgr-remarks-${s}`);
+    if (remEl) remEl.value = saved?.remarks || '';
+    await renderChecklist(s, 'mgr');
+    if (saved?.signature) loadSigIntoCanvas(`sigpad-${s}-mgr`, saved.signature);
+  }
+}
+
+async function updateOverviewCards() {
+  const cl = await loadMasterChecklists();
+  const container = document.getElementById('overview-grid-container');
+  if (!container) return;
+  container.innerHTML = '';
+  const ovKeys = { foh_cashier:'foh', foh_server:'foh2', boh:'boh', grill:'grill', closing:'close' };
+
+  for (const [section, def] of Object.entries(cl)) {
+    const data = await loadChecklist(currentDate, section);
+    const cv = getColorVars(def.color);
+    const ovCls = ovKeys[section] || section;
+    const card = document.createElement('div');
+    card.className = `ov-card ov-${ovCls}`;
+    if (!cv.fill) card.style.setProperty('--ov-color', cv.main);
+    const total = getTasksFlatSync(cl, section).length;
+    let pct=0, subText='No data for this date', barW='0%', whoHTML='', lateHTML='', timeHTML='';
+
+    if (data && data.tasks) {
+      const done = Object.values(data.tasks).filter(v => v.checked).length;
+      pct = Math.round(done/total*100);
+      barW = pct+'%';
+      const submittedTime = data.submittedTime || (data.submittedAt ? new Date(data.submittedAt).toTimeString().slice(0,5) : null);
+      timeHTML = submittedTime ? `<span style="font-size:11px;color:var(--muted);margin-left:4px">@ ${submittedTime}</span>` : '';
+      if (data.isLate) lateHTML = `<span class="late-badge">⏰ Late Submission</span>`;
+      subText = `${done} of ${total} tasks · ${data.submitted?'Submitted':'In Progress'}`;
+      whoHTML = `<span class="ov-chip${data.submitted?' done':''}">${data.userName||'Unknown'}${data.submitted?' ✓':' …'}</span>${timeHTML}${lateHTML}`;
+    }
+
+    // Per-supervisor breakdown for closing checklist
+    let supBreakdownHTML = '';
+    if (section === 'closing' && data && data.tasks) {
+      const owners = cl[section].closingOwners || {};
+      const ownerMap = {}; // userId → [cats]
+      Object.entries(owners).forEach(([cat, ids]) => {
+        ids.forEach(id => {
+          if (!ownerMap[id]) ownerMap[id] = [];
+          ownerMap[id].push(cat);
+        });
+      });
+      supBreakdownHTML = '<div style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px">';
+      for (const [uid, cats] of Object.entries(ownerMap)) {
+        const u = USERS[uid]; if (!u) continue;
+        let sDone=0, sTotal=0, gIdx=0;
+        cl[section].groups.forEach(g => {
+          g.tasks.forEach((_,ti) => {
+            if (cats.includes(g.cat)) { sTotal++; if (data.tasks[gIdx]?.checked) sDone++; }
+            gIdx++;
+          });
+        });
+        const sPct = sTotal ? Math.round(sDone/sTotal*100) : 0;
+        supBreakdownHTML += `<div style="display:flex;align-items:center;gap:6px;padding:3px 0;font-size:12px">
+          <span style="width:22px;height:22px;border-radius:50%;background:${u.role==='asst'?'var(--asst-color)':'var(--accent)'};color:white;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0">${u.initials}</span>
+          <span style="flex:1;color:var(--text)">${u.name.split(' ')[0]} — ${cats.join(', ')}</span>
+          <span style="font-weight:700;color:${sPct===100?'var(--accent)':'var(--accent2)'}">${sPct}%</span>
+        </div>`;
+      }
+      supBreakdownHTML += '</div>';
+    }
+
+    card.innerHTML = `
+      <div class="ov-label">${def.label}</div>
+      <div class="ov-pct">${data?pct+'%':'—'}</div>
+      <div class="ov-sub">${subText}</div>
+      <div class="ov-bar"><div class="ov-bar-fill" style="width:${barW};${cv.fill?'':'background:'+cv.main}"></div></div>
+      <div class="ov-who">${whoHTML}</div>
+      ${supBreakdownHTML}`;
+    container.appendChild(card);
+  }
+}
+
+async function buildSupSummary() {
+  const container = document.getElementById('mgr-sup-summary');
+  if (!container) return;
+  container.innerHTML = '';
+  const cl = await loadMasterChecklists();
+  const supIds = ['portia','evans_o','ruth','evans_g','michael','patience','sarah'];
+  for (const id of supIds) {
+    const u = USERS[id];
+    const sections = await getUserSections({...u, id});
+    let stats = [];
+    for (const section of sections) {
+      const data = await loadChecklist(currentDate, section);
+      if (data && data.userId === id) {
+        const total = getTasksFlatSync(cl, section).length;
+        const done = Object.values(data.tasks||{}).filter(v => v.checked).length;
+        stats.push({section, pct:Math.round(done/total*100), submitted:data.submitted});
+      }
+    }
+    const statsHTML = stats.length
+      ? stats.map(s=>`<span><span class="sup-stat-dot" style="background:${s.submitted?'var(--accent)':'var(--accent2)'}"></span>${s.section.toUpperCase()} ${s.pct}%${s.submitted?' ✓':''}</span>`).join(' &nbsp; ')
+      : '<span style="color:var(--muted)">No activity recorded</span>';
+    const roleChip = u.role==='asst'?'<span class="role-chip chip-asst">Asst. Supervisor</span>':'<span class="role-chip chip-supervisor">Supervisor</span>';
+    const card = document.createElement('div');
+    card.className = 'sup-card';
+    card.innerHTML = `<div class="sup-avatar" style="background:${u.role==='asst'?'var(--asst-color)':'var(--accent)'}">${u.initials}</div><div style="flex:1"><div class="sup-info-name">${u.name} ${roleChip}</div><div class="sup-info-role">${sections.map(a=>a.toUpperCase()).join(' · ')}</div><div class="sup-info-stat">${statsHTML}</div></div>`;
+    container.appendChild(card);
+  }
+}
+
+// ════════════════════════════════
+// REPORTS
+// ════════════════════════════════
+async function initReportFilters() {
+  const sel = document.getElementById('report-supervisor-filter');
+  if (!sel) return;
+  sel.innerHTML = '<option value="all">All Team Members</option>';
+  const supIds = ['portia','evans_o','ruth','evans_g','michael','patience','sarah'];
+  supIds.forEach(id => {
+    const u = USERS[id];
+    const opt = document.createElement('option');
+    opt.value = id; opt.textContent = u.name;
+    sel.appendChild(opt);
+  });
+  // Default date range: last 7 days
+  const today = getTodayStr();
+  const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate()-6);
+  document.getElementById('report-date-from').value = weekAgo.toISOString().split('T')[0];
+  document.getElementById('report-date-to').value = today;
+  document.getElementById('report-date-from').min = START_DATE;
+  document.getElementById('report-date-from').max = today;
+  document.getElementById('report-date-to').min = START_DATE;
+  document.getElementById('report-date-to').max = today;
+}
+
+function getDatesInRange(from, to) {
+  const dates = [];
+  let d = new Date(from+'T00:00:00');
+  const end = new Date(to+'T00:00:00');
+  while (d <= end) { dates.push(d.toISOString().split('T')[0]); d.setDate(d.getDate()+1); }
+  return dates;
+}
+
+async function generateReport() {
+  const from = document.getElementById('report-date-from').value;
+  const to   = document.getElementById('report-date-to').value;
+  const supFilter = document.getElementById('report-supervisor-filter').value;
+  if (!from || !to) { showToast('Please select a date range.',true); return; }
+  if (from > to)    { showToast('From date must be before To date.',true); return; }
+
+  showSyncOverlay(true);
+  const dates = getDatesInRange(from, to);
+  const cl = await loadMasterChecklists();
+  const allSupIds = ['portia','evans_o','ruth','evans_g','michael','patience','sarah'];
+  const supIds = supFilter === 'all' ? allSupIds : [supFilter];
+
+  // Gather data
+  const reportData = {}; // supId → { name, sections: { sectionKey → [{ date, submitted, isLate, submittedTime, pct }] } }
+  for (const id of supIds) {
+    const u = USERS[id];
+    const sections = await getUserSections({...u, id});
+    reportData[id] = { name:u.name, initials:u.initials, role:u.role, sections:{} };
+    for (const s of sections) {
+      reportData[id].sections[s] = [];
+      for (const date of dates) {
+        const data = await loadChecklist(date, s);
+        const total = getTasksFlatSync(cl, s).length;
+        let pct = 0, submitted = false, isLate = false, submittedTime = null, shiftLeader = null;
+        if (data && data.tasks) {
+          // For closing, only count this supervisor's sections
+          let relevantDone = 0, relevantTotal = 0;
+          if (s === 'closing') {
+            const allowedCats = getUserClosingSections({...u, id});
+            if (allowedCats) {
+              let gIdx = 0;
+              cl[s].groups.forEach(g => {
+                g.tasks.forEach(() => {
+                  if (allowedCats.includes(g.cat)) {
+                    relevantTotal++;
+                    if (data.tasks[gIdx]?.checked) relevantDone++;
+                  }
+                  gIdx++;
+                });
+              });
+              pct = relevantTotal ? Math.round(relevantDone/relevantTotal*100) : 0;
+            } else {
+              const done = Object.values(data.tasks).filter(v => v.checked).length;
+              pct = total ? Math.round(done/total*100) : 0;
+            }
+          } else {
+            const done = Object.values(data.tasks).filter(v => v.checked).length;
+            pct = total ? Math.round(done/total*100) : 0;
+          }
+          submitted = !!data.submitted;
+          isLate = !!data.isLate;
+          submittedTime = data.submittedTime || (data.submittedAt ? new Date(data.submittedAt).toTimeString().slice(0,5) : null);
+          shiftLeader = data.shiftLeader || null;
+        }
+        reportData[id].sections[s].push({ date, submitted, isLate, pct, submittedTime, shiftLeader, hasData: !!(data && data.tasks) });
+      }
+    }
+  }
+  showSyncOverlay(false);
+  renderReport(reportData, dates, cl, from, to);
+}
+
+function renderReport(reportData, dates, cl, from, to) {
+  const container = document.getElementById('report-output');
+  if (!container) return;
+
+  // ── Summary cards per supervisor ───────────────────────────────────────
+  let html = `<div style="margin:24px 0 8px"><span style="font-family:'Playfair Display',serif;font-size:18px">Compliance Report</span>
+    <span style="font-size:12px;color:var(--muted);margin-left:12px">${formatDateNice(from)} → ${formatDateNice(to)}</span></div>`;
+
+  // Export buttons
+  html += `<div style="display:flex;gap:10px;margin-bottom:20px">
+    <button class="submit-btn" style="padding:8px 18px;font-size:13px;background:#c0392b" onclick="exportReportPDF()">⬇ Download PDF</button>
+    <button class="submit-btn" style="padding:8px 18px;font-size:13px;background:#1a6b4a" onclick="exportReportExcel()">⬇ Download Excel</button>
+  </div>`;
+
+  // Per-supervisor summary
+  html += `<div id="report-content">`;
+  for (const [id, sup] of Object.entries(reportData)) {
+    const sections = Object.entries(sup.sections);
+    const totalExpected = sections.reduce((a,[,entries]) => a + entries.length, 0);
+    const totalSubmitted = sections.reduce((a,[,entries]) => a + entries.filter(e=>e.submitted).length, 0);
+    const totalLate = sections.reduce((a,[,entries]) => a + entries.filter(e=>e.isLate).length, 0);
+    const totalMissed = sections.reduce((a,[,entries]) => a + entries.filter(e=>!e.submitted).length, 0);
+    const compliancePct = totalExpected ? Math.round(totalSubmitted/totalExpected*100) : 0;
+    const compColor = compliancePct >= 90 ? 'var(--accent)' : compliancePct >= 70 ? 'var(--accent2)' : 'var(--danger)';
+
+    html += `<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:20px;margin-bottom:18px">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap">
+        <div style="width:38px;height:38px;border-radius:50%;background:${sup.role==='asst'?'var(--asst-color)':'var(--accent)'};color:white;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0">${sup.initials}</div>
+        <div style="flex:1">
+          <div style="font-weight:700;font-size:15px">${sup.name}</div>
+          <div style="font-size:12px;color:var(--muted)">${sup.role==='asst'?'Asst. Supervisor':'Supervisor'}</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:26px;font-weight:800;color:${compColor}">${compliancePct}%</div>
+          <div style="font-size:11px;color:var(--muted)">Compliance Rate</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px">
+        <div style="background:var(--accent-lt);border-radius:8px;padding:8px 14px;text-align:center;flex:1;min-width:80px">
+          <div style="font-size:20px;font-weight:800;color:var(--accent)">${totalSubmitted}</div>
+          <div style="font-size:11px;color:var(--muted)">Submitted</div>
+        </div>
+        <div style="background:#fdf6e3;border-radius:8px;padding:8px 14px;text-align:center;flex:1;min-width:80px">
+          <div style="font-size:20px;font-weight:800;color:var(--accent2)">${totalLate}</div>
+          <div style="font-size:11px;color:var(--muted)">Late</div>
+        </div>
+        <div style="background:var(--danger-lt);border-radius:8px;padding:8px 14px;text-align:center;flex:1;min-width:80px">
+          <div style="font-size:20px;font-weight:800;color:var(--danger)">${totalMissed}</div>
+          <div style="font-size:11px;color:var(--muted)">Missed</div>
+        </div>
+      </div>`;
+
+    // Drill-down table per section
+    for (const [sKey, entries] of sections) {
+      const def = cl[sKey]; if (!def) continue;
+      html += `<div style="margin-top:12px">
+        <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:6px">${def.label}</div>
+        <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead><tr style="background:var(--surface2)">
+            <th style="padding:6px 10px;text-align:left;border:1px solid var(--border)">Date</th>
+            <th style="padding:6px 10px;text-align:center;border:1px solid var(--border)">Status</th>
+            <th style="padding:6px 10px;text-align:center;border:1px solid var(--border)">Time</th>
+            <th style="padding:6px 10px;text-align:center;border:1px solid var(--border)">Completion</th>
+            <th style="padding:6px 10px;text-align:left;border:1px solid var(--border)">Shift Leader</th>
+          </tr></thead><tbody>`;
+      entries.forEach(e => {
+        const statusColor = e.submitted ? (e.isLate ? '#c8a84b' : '#2d5a3d') : (e.hasData ? '#e67e22' : '#999');
+        const statusText = e.submitted ? (e.isLate ? '⏰ Late' : '✓ On Time') : (e.hasData ? '… In Progress' : '— Not Started');
+        const timeText = e.submittedTime || '—';
+        html += `<tr>
+          <td style="padding:6px 10px;border:1px solid var(--border)">${formatDateNice(e.date).replace(/, \d{4}/,'')}</td>
+          <td style="padding:6px 10px;border:1px solid var(--border);text-align:center;color:${statusColor};font-weight:600">${statusText}</td>
+          <td style="padding:6px 10px;border:1px solid var(--border);text-align:center;color:var(--muted)">${timeText}</td>
+          <td style="padding:6px 10px;border:1px solid var(--border);text-align:center">${e.hasData?e.pct+'%':'—'}</td>
+          <td style="padding:6px 10px;border:1px solid var(--border);color:var(--muted)">${e.shiftLeader||'—'}</td>
+        </tr>`;
+      });
+      html += `</tbody></table></div></div>`;
+    }
+    html += `</div>`;
+  }
+  html += `</div>`; // close report-content
+
+  // Remarks summary at bottom
+  html += `<div id="report-remarks-section" style="margin-top:24px"></div>`;
+  container.innerHTML = html;
+
+  // Load remarks for the range async
+  loadRemarksForReport(getDatesInRange(from, to));
+}
+
+async function loadRemarksForReport(dates) {
+  const el = document.getElementById('report-remarks-section');
+  if (!el) return;
+  let allRemarks = [];
+  for (const date of dates) {
+    const r = await loadRemarks(date);
+    r.forEach(rem => allRemarks.push({...rem, date}));
+  }
+  if (!allRemarks.length) { el.innerHTML = ''; return; }
+  const pc = {'Note':'#2980b9','Recommendation':'#27ae60','Action Required':'#e67e22'};
+  el.innerHTML = `<div style="font-family:'Playfair Display',serif;font-size:18px;margin-bottom:14px">Remarks & Concerns</div>` +
+    allRemarks.map(r => `<div class="remark-entry">
+      <div class="remark-meta">
+        <span class="remark-area-tag" style="background:${pc[r.priority]}22;color:${pc[r.priority]};border:1px solid ${pc[r.priority]}44">${r.priority}</span>
+        <span class="remark-area-tag" style="background:var(--surface);border:1px solid var(--border);color:var(--muted)">${r.area}</span>
+        <span class="remark-by">— ${r.by}</span>
+        <span class="remark-time">${formatDateNice(r.date)} ${new Date(r.at).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}</span>
+      </div>
+      <div class="remark-text">${r.text}</div>
+    </div>`).join('');
+}
+
+// ── PDF Export ─────────────────────────────────────────────────────────────
+function exportReportPDF() {
+  const content = document.getElementById('report-content');
+  if (!content) { showToast('Generate a report first.',true); return; }
+  const w = window.open('','_blank');
+  w.document.write(`<html><head><title>Shift Compliance Report</title>
+    <link href="https://fonts.googleapis.com/css2?family=Mulish:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+      body{font-family:'Mulish',sans-serif;font-size:13px;color:#1c1a17;padding:32px;max-width:900px;margin:0 auto}
+      table{width:100%;border-collapse:collapse;margin-bottom:12px}
+      th,td{padding:6px 10px;border:1px solid #e4e0d8;text-align:left}
+      th{background:#faf9f7;font-weight:700}
+      h2{font-size:20px;margin:0 0 4px}
+      .sec{background:#fff;border:1px solid #e4e0d8;border-radius:10px;padding:16px;margin-bottom:16px;page-break-inside:avoid}
+      @media print{body{padding:16px}.sec{page-break-inside:avoid}}
+    </style></head><body>
+    <h2>Shift Compliance Report</h2>
+    <p style="color:#8a8478;margin-bottom:20px">Generated ${new Date().toLocaleString('en-GB')}</p>
+    ${content.innerHTML}
+    </body></html>`);
+  w.document.close();
+  setTimeout(() => w.print(), 800);
+}
+
+// ── Excel Export ───────────────────────────────────────────────────────────
+function exportReportExcel() {
+  const rows = [['Supervisor','Section','Date','Status','Submission Time','Completion %','Shift Leader']];
+  // Parse from rendered table cells
+  document.querySelectorAll('#report-content table tbody tr').forEach(tr => {
+    const supervisor = tr.closest('[data-sup]')?.dataset.sup || '';
+    const tds = Array.from(tr.querySelectorAll('td')).map(td => td.textContent.trim());
+    if (tds.length) rows.push(tds);
+  });
+  // Simple CSV approach (works without xlsx lib)
+  const csv = rows.map(r => r.map(c => '"'+String(c).replace(/"/g,'""')+'"').join(',')).join('\n');
+  const blob = new Blob([csv], {type:'text/csv'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `shift_report_${getTodayStr()}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  showToast('✓ Excel/CSV downloaded!', false, true);
+}
+
+// REMARKS
+async function addRemark() {
+  const area = document.getElementById('remark-area').value;
+  const priority = document.getElementById('remark-priority').value;
+  const text = document.getElementById('remark-text').value.trim();
+  if (!text) { showToast('Please write a remark first.',true); return; }
+  showSyncOverlay(true);
+  const remarks = await loadRemarks(currentDate);
+  remarks.push({area, priority, text, by:currentUser.name, at:new Date().toISOString()});
+  await saveRemarks(currentDate, remarks);
+  document.getElementById('remark-text').value = '';
+  await renderRemarks();
+  showSyncOverlay(false);
+  showToast('💡 Remark added',false,true);
+}
+
+async function renderRemarks() {
+  const remarks = await loadRemarks(currentDate);
+  const body = document.getElementById('remarks-log-body');
+  if (!body) return;
+  if (!remarks.length) { body.innerHTML = '<div class="no-remarks">No remarks recorded for this date.</div>'; return; }
+  const pc = {'Note':'#2980b9','Recommendation':'#27ae60','Action Required':'#e67e22'};
+  body.innerHTML = remarks.map(r=>`<div class="remark-entry"><div class="remark-meta"><span class="remark-area-tag" style="background:${pc[r.priority]}22;color:${pc[r.priority]};border:1px solid ${pc[r.priority]}44">${r.priority}</span><span class="remark-area-tag" style="background:var(--surface);border:1px solid var(--border);color:var(--muted)">${r.area}</span><span class="remark-by">— ${r.by}</span><span class="remark-time">${new Date(r.at).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}</span></div><div class="remark-text">${r.text}</div></div>`).join('');
+}
+
+// ════════════════════════════════
+// CHECKLIST EDITOR
+// ════════════════════════════════
+let editorSelectedColor = null;
+
+async function buildEditorView() {
+  const cl = await loadMasterChecklists();
+  const sections = Object.keys(cl);
+  activeEditorSection = sections[0];
+
+  const tabsRow = document.getElementById('editor-tabs-row');
+  tabsRow.innerHTML = '';
+  sections.forEach((key, i) => {
+    const def = cl[key];
+    const cv = getColorVars(def.color);
+    const btn = document.createElement('button');
+    btn.className = 'editor-cl-tab'+(i===0?' active':'');
+    btn.id = `editor-tab-btn-${key}`;
+    btn.dataset.key = key;
+    const dotColor = cv.hex || cv.main;
+    let inner = `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${dotColor};margin-right:4px"></span>${def.label}`;
+    if (!def.builtIn) inner += `<button class="tab-del-btn" title="Delete tab" onclick="deleteCustomTab('${key}',event)">✕</button>`;
+    btn.innerHTML = inner;
+    btn.onclick = (e) => { if (e.target.classList.contains('tab-del-btn')) return; switchEditorTab(key); };
+    tabsRow.appendChild(btn);
+  });
+
+  const addBtn = document.createElement('button');
+  addBtn.className = 'editor-cl-tab-add';
+  addBtn.innerHTML = '+ Add Tab';
+  addBtn.onclick = openAddTabModal;
+  tabsRow.appendChild(addBtn);
+
+  const panelsContainer = document.getElementById('editor-panels-container');
+  panelsContainer.innerHTML = '';
+  sections.forEach((key, i) => {
+    const div = document.createElement('div');
+    div.id = 'editor-'+key;
+    div.className = 'editor-cl-panel'+(i===0?' active':'');
+    panelsContainer.appendChild(div);
+  });
+  await buildEditorTabSettings(activeEditorSection, cl);
+  await buildEditorPanel(activeEditorSection, cl);
+}
+
+function switchEditorTab(section) {
+  activeEditorSection = section;
+  document.querySelectorAll('#editor-tabs-row .editor-cl-tab').forEach(b => {
+    b.classList.toggle('active', b.dataset.key===section);
+  });
+  document.querySelectorAll('.editor-cl-panel').forEach(p => p.classList.remove('active'));
+  const panel = document.getElementById('editor-'+section);
+  if (panel) panel.classList.add('active');
+  buildEditorTabSettings(section);
+  buildEditorPanel(section);
+}
+
+async function buildEditorTabSettings(section, clObj) {
+  const cl = clObj || await loadMasterChecklists();
+  if (!cl[section]) return;
+  const def = cl[section];
+  const settingsPanel = document.getElementById('editor-tab-settings');
+  settingsPanel.style.display = 'block';
+
+  // Name
+  document.getElementById('editor-tab-name').value = def.label;
+
+  // Color picker
+  const allColors = [
+    {id:'foh',   hex:'#2d5a3d'},
+    {id:'foh2',  hex:'#1a6b8a'},
+    {id:'boh',   hex:'#7b3f6e'},
+    {id:'grill', hex:'#b5451b'},
+    {id:'close', hex:'#8b4513'},
+    ...TAB_COLORS.map(c=>({id:c.id, hex:c.hex})),
+  ];
+  editorSelectedColor = def.color;
+  const cpRow = document.getElementById('editor-tab-color-picker');
+  cpRow.innerHTML = '';
+  allColors.forEach(c => {
+    const sw = document.createElement('div');
+    sw.className = 'color-swatch'+(c.id===def.color?' selected':'');
+    sw.style.background = c.hex;
+    sw.dataset.id = c.id;
+    sw.onclick = () => {
+      editorSelectedColor = c.id;
+      cpRow.querySelectorAll('.color-swatch').forEach(s => s.classList.toggle('selected', s.dataset.id===c.id));
+    };
+    cpRow.appendChild(sw);
+  });
+
+  // Supervisors or closing owners
+  const supSection = document.getElementById('editor-supervisor-section');
+  const closingSection = document.getElementById('editor-closing-owners-section');
+
+  if (section === 'closing') {
+    supSection.style.display = 'none';
+    closingSection.style.display = 'block';
+    const ownersList = document.getElementById('editor-closing-owners-list');
+    ownersList.innerHTML = '';
+    const owners = def.closingOwners || {};
+    def.groups.forEach(g => {
+      if (!g.cat) return;
+      const catOwners = owners[g.cat] || [];
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:12px;padding:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:8px';
+      row.innerHTML = `<span style="min-width:110px;font-size:12px;font-weight:700">${g.cat}</span>`;
+      const checkWrap = document.createElement('div');
+      checkWrap.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;flex:1';
+      Object.entries(USERS).filter(([,u])=>u.role!=='manager').forEach(([id,u]) => {
+        const lbl = document.createElement('label');
+        lbl.style.cssText = 'display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer;padding:3px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface2)';
+        lbl.innerHTML = `<input type="checkbox" data-cat="${g.cat}" data-uid="${id}" ${catOwners.includes(id)?'checked':''} style="accent-color:var(--accent)">${u.name.split(' ')[0]}`;
+        checkWrap.appendChild(lbl);
+      });
+      row.appendChild(checkWrap);
+      ownersList.appendChild(row);
+    });
+  } else {
+    supSection.style.display = 'block';
+    closingSection.style.display = 'none';
+    const box = document.getElementById('editor-supervisor-checkboxes');
+    box.innerHTML = '';
+    Object.entries(USERS).filter(([,u]) => u.role !== 'manager').forEach(([id,u]) => {
+      const lbl = document.createElement('label');
+      lbl.className = 'sup-checkbox-row';
+      const checked = def.supervisors ? def.supervisors.includes(id) : false;
+      lbl.innerHTML = `<input type="checkbox" value="${id}" ${checked?'checked':''} style="accent-color:var(--accent)"><span>${u.name}</span>`;
+      box.appendChild(lbl);
+    });
+  }
+
+  // Category manager (only for checklists with categories)
+  const hasCats = def.groups.some(g => g.cat);
+  const catMgr = document.getElementById('editor-cat-manager');
+  if (hasCats || section !== 'closing') {
+    catMgr.style.display = 'block';
+    buildCatList(section, cl);
+  } else {
+    catMgr.style.display = 'none';
+  }
+}
+
+function buildCatList(section, cl) {
+  const def = cl[section];
+  const list = document.getElementById('editor-cat-list');
+  list.innerHTML = '';
+  const hasCats = def.groups.some(g => g.cat);
+  if (!hasCats) {
+    list.innerHTML = '<div style="font-size:12px;color:var(--muted)">This checklist has no categories — tasks are in a single flat list. Add a category to group tasks.</div>';
+    return;
+  }
+  def.groups.forEach((g, gi) => {
+    const catName = g.cat || '(Uncategorised)';
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:6px';
+    const isBuiltin = def.builtIn && section === 'closing';
+    row.innerHTML = `
+      <span style="flex:1;font-size:13px;font-weight:600">${catName}</span>
+      <span style="font-size:11px;color:var(--muted)">${g.tasks.length} tasks</span>
+      ${!isBuiltin ? `<button onclick="renameCat('${section}',${gi})" style="background:none;border:1px solid var(--border);border-radius:6px;padding:4px 9px;cursor:pointer;font-size:12px;font-family:'Mulish',sans-serif" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">Rename</button>` : ''}
+      ${!isBuiltin ? `<button onclick="deleteCat('${section}',${gi})" style="background:none;border:1px solid var(--border);border-radius:6px;padding:4px 9px;cursor:pointer;font-size:12px;font-family:'Mulish',sans-serif" onmouseover="this.style.borderColor='var(--danger)';this.style.color='var(--danger)'" onmouseout="this.style.borderColor='var(--border)';this.style.color=''">Delete</button>` : '<span style="font-size:11px;color:var(--muted);font-style:italic">built-in</span>'}
+    `;
+    list.appendChild(row);
+  });
+}
+
+async function saveTabSettings() {
+  const section = activeEditorSection;
+  const cl = await loadMasterChecklists();
+  if (!cl[section]) return;
+
+  const newName = document.getElementById('editor-tab-name').value.trim();
+  if (!newName) { showToast('Tab name cannot be empty.',true); return; }
+
+  cl[section].label = newName;
+  if (editorSelectedColor) cl[section].color = editorSelectedColor;
+
+  if (section === 'closing') {
+    // Save closing owners
+    const checkboxes = document.querySelectorAll('#editor-closing-owners-list input[type="checkbox"]');
+    const owners = {};
+    checkboxes.forEach(cb => {
+      const cat = cb.dataset.cat;
+      const uid = cb.dataset.uid;
+      if (!owners[cat]) owners[cat] = [];
+      if (cb.checked) owners[cat].push(uid);
+    });
+    cl[section].closingOwners = owners;
+    // Sync to USERS.closingSections
+    Object.entries(USERS).forEach(([uid, u]) => {
+      if (u.role === 'manager') return;
+      u.closingSections = Object.entries(owners)
+        .filter(([,ids]) => ids.includes(uid))
+        .map(([cat]) => cat);
+    });
+  } else {
+    const checkedBoxes = document.querySelectorAll('#editor-supervisor-checkboxes input[type="checkbox"]:checked');
+    cl[section].supervisors = Array.from(checkedBoxes).map(cb => cb.value);
+    // Sync access arrays
+    Object.entries(USERS).forEach(([uid, u]) => {
+      if (u.role === 'manager') return;
+      if (cl[section].supervisors.includes(uid)) {
+        if (!u.access.includes(section)) u.access.push(section);
+      } else {
+        u.access = u.access.filter(a => a !== section);
+      }
+    });
+  }
+
+  await saveMasterChecklists(cl);
+  await buildEditorView();
+  await buildMgrClView();
+  await buildRemarkAreaSelect();
+  showToast('✓ Tab settings saved!', false, true);
+}
+
+function openAddCategoryModal() {
+  document.getElementById('new-cat-name').value = '';
+  document.getElementById('add-cat-modal').classList.add('show');
+}
+
+async function confirmAddCategory() {
+  const name = document.getElementById('new-cat-name').value.trim();
+  if (!name) { showToast('Please enter a category name.',true); return; }
+  const cl = await loadMasterChecklists();
+  const section = activeEditorSection;
+  cl[section].groups.push({ cat: name, tasks: [] });
+  await saveMasterChecklists(cl);
+  document.getElementById('add-cat-modal').classList.remove('show');
+  await buildEditorPanel(section, cl);
+  buildCatList(section, cl);
+  showEditorSaveNotice();
+  showToast('✓ Category "'+name+'" added!', false, true);
+}
+
+async function renameCat(section, groupIdx) {
+  const cl = await loadMasterChecklists();
+  const g = cl[section].groups[groupIdx];
+  const newName = prompt('Rename category:', g.cat || '');
+  if (!newName || !newName.trim()) return;
+  g.cat = newName.trim();
+  await saveMasterChecklists(cl);
+  await buildEditorPanel(section, cl);
+  buildCatList(section, cl);
+  showEditorSaveNotice();
+}
+
+async function deleteCat(section, groupIdx) {
+  const cl = await loadMasterChecklists();
+  const g = cl[section].groups[groupIdx];
+  if (g.tasks.length > 0) {
+    if (!confirm(`Delete category "${g.cat}" and its ${g.tasks.length} task(s)? This cannot be undone.`)) return;
+  } else {
+    if (!confirm(`Delete empty category "${g.cat}"?`)) return;
+  }
+  cl[section].groups.splice(groupIdx, 1);
+  await saveMasterChecklists(cl);
+  await buildEditorPanel(section, cl);
+  await buildEditorTabSettings(section, cl);
+  showEditorSaveNotice();
+}
+
+async function buildEditorPanel(section, clObj) {
+  const container = document.getElementById('editor-'+section);
+  if (!container) return;
+  const cl = clObj || await loadMasterChecklists();
+  if (!cl[section]) return;
+  container.innerHTML = '';
+
+  let gIdx = 0;
+  const totalTasks = getTasksFlatSync(cl, section).length;
+  cl[section].groups.forEach((group, groupIdx) => {
+    if (group.cat) {
+      const hdr = document.createElement('div');
+      hdr.className = 'editor-cat-header';
+      hdr.textContent = group.cat;
+      container.appendChild(hdr);
+    }
+    group.tasks.forEach((task) => {
+      const globalIdx = gIdx;
+      const row = document.createElement('div');
+      row.id = `erow-${section}-${globalIdx}`;
+      row.className = 'editor-task-row';
+      row.innerHTML = `
+        <span class="editor-task-idx">${globalIdx+1}</span>
+        <div style="flex:1">
+          <div class="editor-task-text">${task}</div>
+          <div class="edit-inline-wrap" id="editwrap-${section}-${globalIdx}">
+            <textarea class="edit-inline-textarea" id="edittxt-${section}-${globalIdx}">${task}</textarea>
+            <div style="display:flex;flex-direction:column;gap:4px">
+              <button class="edit-save-btn" onclick="saveTaskEdit('${section}',${globalIdx})">Save</button>
+              <button class="edit-cancel-btn" onclick="cancelTaskEdit('${section}',${globalIdx})">✕</button>
+            </div>
+          </div>
+        </div>
+        <div class="editor-task-actions">
+          ${globalIdx>0?`<button class="move-btn" title="Move up" onclick="moveTask('${section}',${globalIdx},-1)">↑</button>`:''}
+          ${globalIdx<totalTasks-1?`<button class="move-btn" title="Move down" onclick="moveTask('${section}',${globalIdx},1)">↓</button>`:''}
+          <button class="edit-task-btn" onclick="startTaskEdit('${section}',${globalIdx})">Edit</button>
+          <button class="delete-task-btn" onclick="deleteTask('${section}',${globalIdx})">Delete</button>
+        </div>`;
+      container.appendChild(row);
+      gIdx++;
+    });
+
+    // Add task row per group
+    const addRow = document.createElement('div');
+    addRow.className = 'editor-add-row';
+    addRow.style.marginBottom = '16px';
+    addRow.innerHTML = `<textarea placeholder="Add a task to ${group.cat||'this checklist'}…" id="new-task-${section}-${groupIdx}"></textarea><button class="add-task-btn" onclick="addTask('${section}',${groupIdx})">+ Add</button>`;
+    container.appendChild(addRow);
+  });
+}
+
+function startTaskEdit(section,idx) { document.getElementById(`editwrap-${section}-${idx}`).classList.add('show'); document.getElementById(`edittxt-${section}-${idx}`).focus(); }
+function cancelTaskEdit(section,idx) { document.getElementById(`editwrap-${section}-${idx}`).classList.remove('show'); }
+
+async function saveTaskEdit(section,idx) {
+  const newText = document.getElementById(`edittxt-${section}-${idx}`).value.trim();
+  if (!newText) { showToast('Task cannot be empty.',true); return; }
+  const cl = await loadMasterChecklists();
+  let gIdx=0, saved=false;
+  cl[section].groups.forEach(g => { g.tasks.forEach((_,ti) => { if(gIdx===idx){g.tasks[ti]=newText;saved=true;} gIdx++; }); });
+  if (saved) { await saveMasterChecklists(cl); await buildEditorPanel(section, cl); await refreshAllProgressTotals(cl); showEditorSaveNotice(); }
+}
+
+async function deleteTask(section,idx) {
+  if (!confirm('Delete this task? This cannot be undone.')) return;
+  const cl = await loadMasterChecklists();
+  let gIdx=0;
+  cl[section].groups.forEach(g => { for(let ti=0;ti<g.tasks.length;ti++){if(gIdx===idx){g.tasks.splice(ti,1);break;}gIdx++;} });
+  await saveMasterChecklists(cl); await buildEditorPanel(section, cl); await refreshAllProgressTotals(cl); showEditorSaveNotice();
+}
+
+async function addTask(section, groupIdx) {
+  const txt = document.getElementById(`new-task-${section}-${groupIdx}`).value.trim();
+  if (!txt) { showToast('Please type a task first.',true); return; }
+  const cl = await loadMasterChecklists();
+  cl[section].groups[groupIdx].tasks.push(txt);
+  await saveMasterChecklists(cl);
+  document.getElementById(`new-task-${section}-${groupIdx}`).value = '';
+  await buildEditorPanel(section, cl); await refreshAllProgressTotals(cl); showEditorSaveNotice();
+}
+
+async function moveTask(section,idx,dir) {
+  const cl = await loadMasterChecklists();
+  const allTasks = getTasksFlatSync(cl, section);
+  const newIdx = idx+dir;
+  if (newIdx<0||newIdx>=allTasks.length) return;
+  [allTasks[idx],allTasks[newIdx]] = [allTasks[newIdx],allTasks[idx]];
+  let i=0;
+  cl[section].groups.forEach(g => { g.tasks = g.tasks.map(()=>allTasks[i++]); });
+  await saveMasterChecklists(cl); await buildEditorPanel(section, cl); showEditorSaveNotice();
+}
+
+function showEditorSaveNotice() {
+  const el = document.getElementById('editor-save-notice');
+  el.classList.add('show');
+  setTimeout(()=>el.classList.remove('show'),2500);
+}
+
+async function refreshAllProgressTotals(clObj) {
+  const cl = clObj || await loadMasterChecklists();
+  Object.keys(cl).forEach(s => {
+    const total = getTasksFlatSync(cl, s).length;
+    ['','mgr-'].forEach(prefix => {
+      const el = document.getElementById(prefix+'prog-'+s+'-total');
+      if (el) el.textContent = total;
+      const tc = document.getElementById((prefix?'mgr-':'')+'ctab-count-'+s);
+      if (tc) tc.textContent = `0/${total}`;
+    });
+  });
+}
+
+// ════════════════════════════════
+// ADD TAB MODAL
+// ════════════════════════════════
+let selectedTabColor = TAB_COLORS[0].id;
+
+async function openAddTabModal() {
+  selectedTabColor = TAB_COLORS[0].id;
+  const picker = document.getElementById('tab-color-picker');
+  picker.innerHTML = '';
+  TAB_COLORS.forEach(c => {
+    const sw = document.createElement('div');
+    sw.className = 'color-swatch'+(c.id===selectedTabColor?' selected':'');
+    sw.style.background = c.hex;
+    sw.dataset.id = c.id;
+    sw.onclick = () => {
+      selectedTabColor = c.id;
+      document.querySelectorAll('.color-swatch').forEach(s => s.classList.toggle('selected', s.dataset.id===c.id));
+    };
+    picker.appendChild(sw);
+  });
+
+  const box = document.getElementById('tab-supervisor-checkboxes');
+  box.innerHTML = '';
+  Object.entries(USERS).filter(([,u]) => u.role !== 'manager').forEach(([id,u]) => {
+    const row = document.createElement('label');
+    row.className = 'sup-checkbox-row';
+    row.innerHTML = `<input type="checkbox" value="${id}"><span>${u.name}</span>`;
+    box.appendChild(row);
+  });
+
+  document.getElementById('new-tab-name').value = '';
+  document.getElementById('add-tab-modal').classList.add('show');
+}
+
+function closeAddTabModal() {
+  document.getElementById('add-tab-modal').classList.remove('show');
+}
+
+async function confirmAddTab() {
+  const name = document.getElementById('new-tab-name').value.trim();
+  if (!name) { showToast('Please enter a tab name.',true); return; }
+  const checkedBoxes = document.querySelectorAll('#tab-supervisor-checkboxes input[type="checkbox"]:checked');
+  const assignedSupervisors = Array.from(checkedBoxes).map(cb => cb.value);
+  const key = 'custom_'+Date.now();
+  const colorObj = TAB_COLORS.find(c => c.id===selectedTabColor) || TAB_COLORS[0];
+  const cl = await loadMasterChecklists();
+  cl[key] = {
+    label: name, color: selectedTabColor, builtIn:false,
+    supervisors: assignedSupervisors, hex:colorObj.hex, hexLt:colorObj.lt,
+    groups: [{ cat:null, tasks:[] }]
+  };
+  await saveMasterChecklists(cl);
+  injectCustomColorCSS(selectedTabColor, colorObj.hex, colorObj.lt);
+  closeAddTabModal();
+  await buildEditorView();
+  await buildMgrClView();
+  await buildSupView_ifNeeded(key, assignedSupervisors);
+  await buildRemarkAreaSelect();
+  showToast('✓ Tab "'+name+'" created!', false, true);
+}
+
+function injectCustomColorCSS(colorId, hex, lt) {
+  const styleId = 'custom-color-'+colorId;
+  if (document.getElementById(styleId)) return;
+  const style = document.createElement('style');
+  style.id = styleId;
+  style.textContent = `
+    .cl-prog-fill[data-color="${colorId}"] { background: ${hex}; }
+    .task-row.checked[data-color="${colorId}"] .cb-box { background: ${hex}; border-color: ${hex}; }
+  `;
+  document.head.appendChild(style);
+}
+
+async function buildSupView_ifNeeded(newKey, assignedSupervisors) {
+  if (!currentUser || currentUser.role === 'manager') return;
+  if (assignedSupervisors.includes(currentUser.id)) await buildSupView();
+}
+
+async function deleteCustomTab(key, event) {
+  event.stopPropagation();
+  const cl = await loadMasterChecklists();
+  if (!cl[key] || cl[key].builtIn) { showToast('Built-in tabs cannot be deleted.',true); return; }
+  if (!confirm(`Delete the "${cl[key].label}" tab? This cannot be undone.`)) return;
+  delete cl[key];
+  await saveMasterChecklists(cl);
+  await buildEditorView();
+  await buildMgrClView();
+  await buildRemarkAreaSelect();
+  showToast('Tab deleted.');
+}
+
+// USERS TABLE
+function buildUsersTable() {
+  const tbody = document.getElementById('users-table-body');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+  const roleLabel = {manager:'Manager',supervisor:'Supervisor',asst:'Asst. Supervisor'};
+  const roleChipCls = {manager:'chip-manager',supervisor:'chip-supervisor',asst:'chip-asst'};
+  Object.entries(USERS).forEach(([id,u]) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><strong>${u.name}</strong></td>
+      <td><span class="role-chip ${roleChipCls[u.role]}">${roleLabel[u.role]}</span></td>
+      <td style="font-size:12px;color:var(--muted)">${u.access.map(a=>a.toUpperCase()).join(', ')}</td>
+      <td><span class="pin-reveal" onclick="this.textContent=this.textContent==='Click to reveal'?'${u.pin}':'Click to reveal'" title="Click to reveal PIN">Click to reveal</span></td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+// TOAST
+let toastTimer;
+function showToast(msg,isError=false,isGold=false) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.className = isGold?'gold show':'show';
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>t.classList.remove('show'),3000);
+}
+
+
+// ════════════════════════════════
+// EXPOSE FUNCTIONS TO GLOBAL SCOPE
+// (required because this script runs as a module)
+// ════════════════════════════════
+window.doLogin             = doLogin;
+window.togglePin           = togglePin;
+window.logout              = logout;
+window.submitChecklist     = submitChecklist;
+window.loadManagerView     = loadManagerView;
+window.navigateDate        = navigateDate;
+window.switchMgrView       = switchMgrView;
+window.syncDatePickers     = syncDatePickers;
+window.addRemark           = addRemark;
+window.mgrAutoSave         = mgrAutoSave;
+window.mgrSubmitChecklist  = mgrSubmitChecklist;
+window.addTask             = addTask;
+window.deleteTask          = deleteTask;
+window.startTaskEdit       = startTaskEdit;
+window.saveTaskEdit        = saveTaskEdit;
+window.cancelTaskEdit      = cancelTaskEdit;
+window.moveTask            = moveTask;
+window.deleteCat           = deleteCat;
+window.renameCat           = renameCat;
+window.openAddCategoryModal= openAddCategoryModal;
+window.confirmAddTab       = confirmAddTab;
+window.confirmAddCategory  = confirmAddCategory;
+window.closeAddTabModal    = closeAddTabModal;
+window.saveTabSettings     = saveTabSettings;
+window.deleteCustomTab     = deleteCustomTab;
+window.updateInitials      = updateInitials;
+window.clearSigPad         = clearSigPad;
+window.generateReport      = generateReport;
+window.exportReportPDF     = exportReportPDF;
+window.exportReportExcel   = exportReportExcel;
+
+window.addEventListener('load', () => showScreen('login'));
+</script>
+</body>
+</html>
 
