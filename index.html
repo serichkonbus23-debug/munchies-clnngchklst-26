@@ -1164,7 +1164,36 @@ async function enterSupervisor() {
   for (const key of sections) {
     initSigPad(`sigpad-${key}-sup`, key, 'sup');
     const saved = await loadChecklist(getTodayStr(), key);
-    supState[key] = saved?.tasks || {};
+
+    // For closing checklist: only restore tick state for THIS user's categories.
+    // The shared document contains all supervisors' ticks combined — loading it
+    // wholesale causes other supervisors' ticked tasks to appear pre-checked.
+    if (key === 'closing' && currentUser.role !== 'manager') {
+      const allowedCats = getUserClosingSections(currentUser);
+      if (allowedCats && saved?.tasks) {
+        const cl = await loadMasterChecklists();
+        const filteredTasks = {};
+        let gIdx = 0;
+        (cl[key]?.groups || []).forEach(group => {
+          group.tasks.forEach(() => {
+            // Only restore checked state for tasks in this user's sections
+            if (allowedCats.includes(group.cat)) {
+              filteredTasks[gIdx] = saved.tasks[gIdx] || { checked: false, initials: '' };
+            } else {
+              // Keep other sections' data intact for merging on submit, but show unchecked
+              filteredTasks[gIdx] = { checked: false, initials: '', _otherSup: true };
+            }
+            gIdx++;
+          });
+        });
+        supState[key] = filteredTasks;
+      } else {
+        supState[key] = saved?.tasks || {};
+      }
+    } else {
+      supState[key] = saved?.tasks || {};
+    }
+
     if (saved?.remarks) {
       const el = document.getElementById(`remarks-${key}-sup`);
       if (el) el.value = saved.remarks;
@@ -1391,7 +1420,13 @@ async function submitChecklist(section) {
   const today = getTodayStr();
   const ex = (await loadChecklist(today, section)) || {};
   const remEl = document.getElementById(`remarks-${section}-sup`);
-  const mergedTasks = Object.assign({}, ex.tasks || {}, supState[section]);
+  // Merge: start from existing (all sups' data), then overlay only THIS user's real ticks.
+  // Strip _otherSup placeholder entries so we never overwrite another supervisor's work.
+  const myRealTasks = {};
+  Object.entries(supState[section] || {}).forEach(([idx, val]) => {
+    if (!val._otherSup) myRealTasks[idx] = val;
+  });
+  const mergedTasks = Object.assign({}, ex.tasks || {}, myRealTasks);
   const actualNow = new Date();
   Object.assign(ex, {
     tasks: mergedTasks, submitted:true,
