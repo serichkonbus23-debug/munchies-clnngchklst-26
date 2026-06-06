@@ -1238,7 +1238,18 @@ async function renderChecklist(section, mode) {
   const st = mode==='mgr' ? (mgrState[section]||{}) : (supState[section]||{});
   const date = mode==='mgr' ? currentDate : getTodayStr();
   const savedData = await loadChecklist(date, section);
-  const submitted = !!(savedData && savedData.submitted);
+  // For closing, only lock tasks if THIS user has submitted (not just anyone)
+  let submitted = false;
+  if (savedData) {
+    if (section === 'closing' && mode === 'sup' && currentUser && currentUser.role !== 'manager') {
+      const byObj = savedData.submittedBy;
+      submitted = (typeof byObj === 'object' && byObj !== null)
+        ? !!(byObj[currentUser.id])
+        : byObj === currentUser.id;
+    } else {
+      submitted = !!savedData.submitted;
+    }
+  }
   const cv = getColorVars(cl[section].color);
 
   // Closing section restriction — which categories can this user check off?
@@ -1352,7 +1363,22 @@ async function updateProgress(section, mode, clObj) {
 }
 
 function checkSubmittedState(section, savedData) {
-  const submitted = !!(savedData && savedData.submitted);
+  // For closing: a supervisor's checklist is only "submitted" if THEY specifically submitted.
+  // The shared document's top-level `submitted` flag only turns true when everyone is done.
+  let submitted = false;
+  if (savedData) {
+    if (section === 'closing' && currentUser && currentUser.role !== 'manager') {
+      const byObj = savedData.submittedBy;
+      if (typeof byObj === 'object' && byObj !== null) {
+        submitted = !!(byObj[currentUser.id]);
+      } else {
+        // Legacy string format — treat as submitted only if it was this user
+        submitted = byObj === currentUser.id;
+      }
+    } else {
+      submitted = !!savedData.submitted;
+    }
+  }
   const btn = document.getElementById(section+'-submit-btn');
   const badge = document.getElementById(section+'-submitted');
   if (btn) btn.style.display = submitted ? 'none' : 'inline-flex';
@@ -1428,13 +1454,36 @@ async function submitChecklist(section) {
   });
   const mergedTasks = Object.assign({}, ex.tasks || {}, myRealTasks);
   const actualNow = new Date();
+  // For closing: track per-supervisor submission so other sups aren't
+  // incorrectly shown as submitted when they load the shared document.
+  const submittedBy = ex.submittedBy || {};  // may be object (new) or string (legacy)
+  const submittedByObj = (typeof submittedBy === 'object' && submittedBy !== null && !Array.isArray(submittedBy))
+    ? submittedBy : {};
+  if (section === 'closing') {
+    submittedByObj[currentUser.id] = {
+      at: actualNow.toISOString(),
+      time: actualNow.toTimeString().slice(0,5),
+      isLate: tw.late,
+      shiftLeader: document.getElementById(section+'-leader')?.value||'',
+      name: currentUser.name,
+    };
+  }
+  // "submitted" on the shared doc = true only when ALL expected closing supervisors have submitted
+  // For non-closing sections it stays a simple boolean as before.
+  const allClosingSupIds = ['portia','evans_o','ruth','evans_g','michael','patience','sarah'];
+  const closingAllDone = section === 'closing'
+    ? allClosingSupIds.every(id => !!submittedByObj[id])
+    : true;
+
   Object.assign(ex, {
-    tasks: mergedTasks, submitted:true,
+    tasks: mergedTasks,
+    submitted: section === 'closing' ? closingAllDone : true,
+    submittedBy: section === 'closing' ? submittedByObj : currentUser.id,
     submittedAt: actualNow.toISOString(),
     submittedTime: actualNow.toTimeString().slice(0,5),
     isLate: tw.late,
     shiftWindow: tw.windowLabel,
-    submittedBy: currentUser.id, userName: currentUser.name, userId: currentUser.id,
+    userName: currentUser.name, userId: currentUser.id,
     shiftLeader: document.getElementById(section+'-leader')?.value||'',
     signature: sigData,
     remarks: remEl?.value || ''
