@@ -399,6 +399,7 @@ body{background:var(--bg);color:var(--text);font-family:'Mulish',sans-serif;min-
       <button class="mgr-tab-btn" id="btn-view-reports" onclick="switchMgrView('reports')">📋 Reports</button>
       <button class="mgr-tab-btn" id="btn-view-editor" onclick="switchMgrView('editor')">⚙️ Edit Checklists</button>
       <button class="mgr-tab-btn" id="btn-view-users" onclick="switchMgrView('users')">👥 Team & PINs</button>
+      <button class="mgr-tab-btn" id="btn-view-schedule" onclick="switchMgrView('schedule')">🗓 Shift Schedule</button>
       <div class="user-chip">
         <div class="user-avatar role-manager" id="mgr-avatar"></div>
         <div><div class="user-name" id="mgr-name-display"></div><div class="user-role">Manager</div></div>
@@ -583,6 +584,27 @@ body{background:var(--bg);color:var(--text);font-family:'Mulish',sans-serif;min-
     </div>
 
   </div><!-- /mgr-body -->
+    <!-- SHIFT SCHEDULE VIEW -->
+    <div class="mgr-view" id="view-schedule">
+      <div class="mgr-date-nav">
+        <h2>Shift Schedule Management</h2>
+        <div style="font-size:13px;color:var(--muted)">Update each supervisor's shift assignment. Changes take effect immediately on their next login.</div>
+      </div>
+      <div class="editor-section">
+        <div class="editor-subtitle" style="margin-bottom:18px">
+          Define which shifts each supervisor works, and which checklists they are expected to submit per shift.
+          The time windows remain: <strong>Morning 9am–12pm</strong>, <strong>Afternoon 2pm–5pm</strong>, <strong>Closing 11:30pm–2:30am</strong>.
+        </div>
+        <div id="schedule-table-container">
+          <div style="color:var(--muted);font-size:13px">Loading schedule…</div>
+        </div>
+        <div style="margin-top:20px;display:flex;gap:10px">
+          <button class="submit-btn" style="padding:9px 22px;font-size:13px" onclick="saveShiftSchedule()">💾 Save Schedule</button>
+          <button class="submit-btn" style="padding:9px 22px;font-size:13px;background:#555" onclick="resetShiftSchedule()">↩ Reset to Defaults</button>
+        </div>
+      </div>
+    </div>
+
 </div><!-- /screen-manager -->
 
 <div class="modal-overlay" id="add-tab-modal">
@@ -891,6 +913,60 @@ const SECTION_SHIFT = {
   foh_cashier: 'morning', foh_server: 'morning',
   boh: 'morning', grill: 'morning', closing: 'closing',
 };
+
+// ════════════════════════════════
+// SHIFT SCHEDULE PER SUPERVISOR
+// Default schedule — can be overridden by managers via Firebase
+// shifts: which shift windows the supervisor works
+// checklists: which sections they must submit, mapped to which shift window's time rules apply
+// ════════════════════════════════
+const SHIFT_SCHEDULE_KEY = 'shift_supervisor_schedule_v1';
+
+const DEFAULT_SHIFT_SCHEDULE = {
+  // portia: morning + afternoon shifts → FOH cashier morning window, closing (front area) as part of afternoon
+  portia:   { shifts:['morning','afternoon'], checklists:{ foh_cashier:'morning',  closing:'afternoon' } },
+  // ruth: afternoon + closing shifts → FOH server afternoon window, closing (serving/storeroom) closing window
+  ruth:     { shifts:['afternoon','closing'], checklists:{ foh_server:'afternoon', closing:'closing'   } },
+  // michael: morning + afternoon → grill morning, closing (grill station) afternoon
+  michael:  { shifts:['morning','afternoon'], checklists:{ grill:'morning',        closing:'afternoon' } },
+  // patience: afternoon + closing → BOH afternoon, closing (kitchen/all stations) closing
+  patience: { shifts:['afternoon','closing'], checklists:{ boh:'afternoon',        closing:'closing'   } },
+  // evans_o: afternoon + closing → FOH cashier closing window only
+  evans_o:  { shifts:['afternoon','closing'], checklists:{ foh_cashier:'closing',  closing:'closing'   } },
+  // evans_g: morning → FOH server morning only
+  evans_g:  { shifts:['morning'],             checklists:{ foh_server:'morning'                        } },
+  // sarah: morning → BOH morning only
+  sarah:    { shifts:['morning'],             checklists:{ boh:'morning'                               } },
+};
+
+// In-memory cache of loaded schedule (merged default + any manager overrides)
+let _loadedSchedule = null;
+
+async function getShiftSchedule() {
+  if (_loadedSchedule) return _loadedSchedule;
+  const overrides = await cloudGet(SHIFT_SCHEDULE_KEY) || {};
+  // Merge: default first, then apply any stored overrides per supervisor
+  const merged = {};
+  Object.keys(DEFAULT_SHIFT_SCHEDULE).forEach(uid => {
+    merged[uid] = overrides[uid] ? { ...DEFAULT_SHIFT_SCHEDULE[uid], ...overrides[uid] } : { ...DEFAULT_SHIFT_SCHEDULE[uid] };
+  });
+  // Also include any entirely new entries managers may have added
+  Object.keys(overrides).forEach(uid => {
+    if (!merged[uid]) merged[uid] = { ...overrides[uid] };
+  });
+  _loadedSchedule = merged;
+  return merged;
+}
+
+// Get the shift window key that applies to a section for a specific user
+// Returns null if this section is not part of their schedule (block submission)
+async function getUserSectionShiftWindow(userId, section) {
+  const schedule = await getShiftSchedule();
+  const userSched = schedule[userId];
+  if (!userSched) return null; // not a scheduled supervisor (e.g. manager)
+  const windowKey = userSched.checklists?.[section];
+  return windowKey || null; // null = not their responsibility
+}
 function timeToMins(t) { const [h,m]=t.split(':').map(Number); return h*60+m; }
 function getCurrentTimeMins() { const n=new Date(); return n.getHours()*60+n.getMinutes(); }
 function checkShiftWindow(section) {
@@ -967,6 +1043,7 @@ async function doLogin() {
 }
 function logout() {
   stopAlertChecker();
+  _loadedSchedule = null; // clear schedule cache on logout
   currentUser = null;
   document.getElementById('login-user').value='';
   document.getElementById('login-pin').value='';
@@ -1200,12 +1277,37 @@ async function enterSupervisor() {
     }
     await renderChecklist(key, 'sup');
     checkSubmittedState(key, saved);
-    if (saved?.signature) {
-      loadSigIntoCanvas(`sigpad-${key}-sup`, saved.signature);
+
+    // Determine if THIS user has personally submitted this section
+    let thisUserSubmitted = false;
+    let thisUserSig = null;
+    if (saved) {
+      if (key === 'closing' && currentUser.role !== 'manager') {
+        const byObj = saved.submittedBy;
+        if (typeof byObj === 'object' && byObj !== null && byObj[currentUser.id]) {
+          thisUserSubmitted = true;
+          // Signature stored per-user under submittedBy[uid].signature
+          thisUserSig = byObj[currentUser.id].signature || null;
+        }
+      } else {
+        thisUserSubmitted = !!saved.submitted;
+        thisUserSig = saved.signature || null;
+      }
+    }
+
+    // Only load signature and lock pad for the user who actually signed
+    if (thisUserSubmitted && thisUserSig) {
+      loadSigIntoCanvas(`sigpad-${key}-sup`, thisUserSig);
       const canvas = document.getElementById(`sigpad-${key}-sup`);
       if (canvas) canvas.classList.add('readonly');
       const clearBtn = canvas?.closest('.sig-pad-wrap')?.querySelector('.sig-clear-btn');
       if (clearBtn) clearBtn.style.display = 'none';
+    } else {
+      // Make sure pad is fresh and unlocked for this user
+      const canvas = document.getElementById(`sigpad-${key}-sup`);
+      if (canvas) canvas.classList.remove('readonly');
+      const clearBtn = canvas?.closest('.sig-pad-wrap')?.querySelector('.sig-clear-btn');
+      if (clearBtn) clearBtn.style.display = '';
     }
   }
   showScreen('supervisor');
@@ -1396,14 +1498,51 @@ function checkMgrSubmittedState(section, savedData) {
 }
 
 async function submitChecklist(section) {
-  // ── Time window check ──────────────────────────────────────────────────
-  const tw = checkShiftWindow(section);
+  // ── Shift schedule check — is this section part of this user's schedule? ──
+  const warnEl2 = document.getElementById(section+'-warn');
+  const isManager = currentUser.role === 'manager' || currentUser.role === 'overview_manager';
+  if (!isManager) {
+    const userWindowKey = await getUserSectionShiftWindow(currentUser.id, section);
+    if (userWindowKey === null) {
+      // Section not in their schedule — block with clear explanation
+      const schedule = await getShiftSchedule();
+      const mySched = schedule[currentUser.id];
+      const myShifts = mySched ? mySched.shifts.map(s => s.charAt(0).toUpperCase()+s.slice(1)).join(' & ') : 'your assigned shift';
+      warnEl2.textContent = `🚫 This checklist is not part of your shift schedule (${myShifts} shift). Please contact your manager if this is incorrect.`;
+      warnEl2.classList.add('show');
+      setTimeout(() => { warnEl2.classList.remove('show'); warnEl2.textContent = '⚠ Complete all tasks before submitting'; }, 6000);
+      return;
+    }
+  }
+
+  // ── Time window check — use the user's assigned shift window for this section ──
+  let tw;
+  if (!isManager) {
+    const userWindowKey = await getUserSectionShiftWindow(currentUser.id, section);
+    const win = SHIFT_WINDOWS[userWindowKey] || SHIFT_WINDOWS['morning'];
+    const nowMins = getCurrentTimeMins();
+    function inWin(start, end) {
+      const s=timeToMins(start), e=timeToMins(end);
+      return e < s ? (nowMins>=s||nowMins<=e) : (nowMins>=s&&nowMins<=e);
+    }
+    const inPrimary = inWin(win.primary.start, win.primary.end);
+    // Afternoon catch-up applies to non-closing sections only
+    const inCatchup = userWindowKey !== 'closing' && inWin(AFTERNOON_CATCHUP.start, AFTERNOON_CATCHUP.end);
+    const allowed   = inPrimary || inCatchup;
+    const late      = !inPrimary; // outside primary = late (even if in catchup)
+    tw = { allowed, late, windowLabel: win.label,
+           primaryLabel: `${win.primary.start}–${win.primary.end}`,
+           catchupLabel: `${AFTERNOON_CATCHUP.start}–${AFTERNOON_CATCHUP.end}` };
+  } else {
+    tw = checkShiftWindow(section);
+  }
+
   if (!tw.allowed) {
-    const warnEl = document.getElementById(section+'-warn');
-    warnEl.textContent = `⏰ Outside submission window. Allowed: ${tw.primaryLabel} or ${tw.catchupLabel}`;
-    warnEl.classList.add('show');
-    setTimeout(() => { warnEl.classList.remove('show'); warnEl.textContent = '⚠ Complete all tasks before submitting'; }, 5000);
-    return;
+    // Outside ALL allowed windows — allow but flag as late
+    warnEl2.textContent = `⏰ Submitting outside your shift window (${tw.primaryLabel}) — will be flagged as late.`;
+    warnEl2.classList.add('show');
+    setTimeout(() => { warnEl2.classList.remove('show'); warnEl2.textContent = '⚠ Complete all tasks before submitting'; }, 4000);
+    tw.late = true;
   }
   const cl = await loadMasterChecklists();
   const warn = document.getElementById(section+'-warn');
@@ -1466,6 +1605,8 @@ async function submitChecklist(section) {
       isLate: tw.late,
       shiftLeader: document.getElementById(section+'-leader')?.value||'',
       name: currentUser.name,
+      signature: sigData,   // store signature per-user, not shared
+      remarks: remEl?.value || '',
     };
   }
   // "submitted" on the shared doc = true only when ALL expected closing supervisors have submitted
@@ -1491,6 +1632,7 @@ async function submitChecklist(section) {
   await saveChecklist(today, section, ex);
   await renderChecklist(section, 'sup');
   if (remEl) remEl.readOnly = true;
+  // Lock signature pad for the submitting user
   const canvas = document.getElementById(`sigpad-${section}-sup`);
   if (canvas) canvas.classList.add('readonly');
   const clearBtn = canvas?.closest('.sig-pad-wrap')?.querySelector('.sig-clear-btn');
@@ -1547,10 +1689,14 @@ async function enterManager() {
 
   // Restrict overview_manager to Overview + Reports only
   const isOverviewOnly = currentUser.role === 'overview_manager';
+  const isFullManager  = currentUser.role === 'manager';
   ['btn-view-checklists','btn-view-editor','btn-view-users'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = isOverviewOnly ? 'none' : '';
   });
+  // Show Shift Schedule tab only for full managers (Mariam & Richmond)
+  const schedBtn = document.getElementById('btn-view-schedule');
+  if (schedBtn) schedBtn.style.display = isFullManager ? '' : 'none';
   currentDate = getTodayStr();
   const picker = document.getElementById('mgr-date-picker');
   picker.value = currentDate; picker.min = START_DATE; picker.max = getTodayStr();
@@ -1571,6 +1717,7 @@ async function enterManager() {
   if (!isOverviewOnly) { await buildEditorView(); await _buildUsersTableAsync(); }
   await buildRemarkAreaSelect();
   await initReportFilters();
+  if (isFullManager) await buildScheduleTable();
   switchMgrView('overview');
   // Start the alert checker for managers
   await startAlertChecker();
@@ -2069,6 +2216,120 @@ function exportReportExcel() {
   a.click();
   URL.revokeObjectURL(a.href);
   showToast('✓ Excel/CSV downloaded!', false, true);
+}
+
+// ════════════════════════════════
+// SHIFT SCHEDULE MANAGEMENT UI
+// ════════════════════════════════
+const SHIFT_OPTIONS  = ['morning','afternoon','closing'];
+const CHECKLIST_SECTIONS = { foh_cashier:'FOH Cashier', foh_server:'FOH Server', boh:'BOH', grill:'Grill', closing:'Closing' };
+
+async function buildScheduleTable() {
+  const container = document.getElementById('schedule-table-container');
+  if (!container) return;
+
+  const schedule = await getShiftSchedule();
+  const allUsers  = await getAllUsers();
+
+  // Only show supervisors and asst supervisors
+  const supIds = Object.entries(allUsers)
+    .filter(([,u]) => (u.role==='supervisor'||u.role==='asst') && !u._deleted)
+    .map(([id]) => id);
+
+  let tableHTML = `
+    <div style="overflow-x:auto">
+    <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead>
+        <tr style="background:var(--surface2)">
+          <th style="padding:10px 14px;text-align:left;border:1px solid var(--border);min-width:160px">Supervisor</th>
+          <th style="padding:10px 14px;text-align:left;border:1px solid var(--border)">Shifts Worked</th>
+          ${Object.entries(CHECKLIST_SECTIONS).map(([key,label])=>`
+            <th style="padding:10px 14px;text-align:center;border:1px solid var(--border);min-width:120px">${label}<br><span style="font-size:10px;font-weight:400;color:var(--muted)">Submit Window</span></th>
+          `).join('')}
+        </tr>
+      </thead>
+      <tbody>`;
+
+  supIds.forEach(uid => {
+    const u   = allUsers[uid];
+    const sch = schedule[uid] || { shifts:[], checklists:{} };
+    const roleChip = u.role==='asst'
+      ? `<span style="font-size:10px;background:#f0ece3;color:var(--muted);padding:2px 6px;border-radius:4px;margin-left:4px">Asst.</span>`
+      : '';
+
+    // Shifts worked checkboxes
+    const shiftsHTML = SHIFT_OPTIONS.map(s => `
+      <label style="display:flex;align-items:center;gap:5px;font-size:12px;white-space:nowrap;cursor:pointer">
+        <input type="checkbox" data-uid="${uid}" data-shift="${s}" class="sched-shift-cb"
+          ${(sch.shifts||[]).includes(s)?'checked':''}
+          style="width:14px;height:14px;accent-color:var(--accent)">
+        ${s.charAt(0).toUpperCase()+s.slice(1)}
+      </label>`).join('');
+
+    // Per-section window dropdowns
+    const sectionsHTML = Object.keys(CHECKLIST_SECTIONS).map(sKey => {
+      // Only show dropdown if this section is in user's access
+      const hasAccess = (u.access||[]).includes(sKey);
+      if (!hasAccess) return `<td style="padding:8px 10px;border:1px solid var(--border);text-align:center;color:var(--border2)">—</td>`;
+      const currentVal = sch.checklists?.[sKey] || '';
+      return `<td style="padding:8px 10px;border:1px solid var(--border);text-align:center">
+        <select data-uid="${uid}" data-section="${sKey}" class="sched-cl-sel"
+          style="padding:5px 8px;border:1.5px solid var(--border);border-radius:7px;font-family:'Mulish',sans-serif;font-size:12px;width:100%;background:var(--surface)">
+          <option value="">Not assigned</option>
+          ${SHIFT_OPTIONS.map(s=>`<option value="${s}" ${currentVal===s?'selected':''}>${s.charAt(0).toUpperCase()+s.slice(1)}</option>`).join('')}
+        </select>
+      </td>`;
+    }).join('');
+
+    tableHTML += `
+      <tr>
+        <td style="padding:10px 14px;border:1px solid var(--border)">
+          <div style="display:flex;align-items:center;gap:8px">
+            <div style="width:28px;height:28px;border-radius:50%;background:${u.role==='asst'?'var(--asst-color)':'var(--accent)'};color:white;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0">${u.initials}</div>
+            <div><strong>${u.name.split(' ')[0]}</strong>${roleChip}</div>
+          </div>
+        </td>
+        <td style="padding:8px 14px;border:1px solid var(--border)">
+          <div style="display:flex;flex-direction:column;gap:4px">${shiftsHTML}</div>
+        </td>
+        ${sectionsHTML}
+      </tr>`;
+  });
+
+  tableHTML += `</tbody></table></div>`;
+  container.innerHTML = tableHTML;
+}
+
+async function saveShiftSchedule() {
+  showSyncOverlay(true);
+  // Read shifts checkboxes
+  const newSchedule = {};
+  document.querySelectorAll('.sched-shift-cb').forEach(cb => {
+    const uid = cb.dataset.uid;
+    if (!newSchedule[uid]) newSchedule[uid] = { shifts:[], checklists:{} };
+    if (cb.checked) newSchedule[uid].shifts.push(cb.dataset.shift);
+  });
+  // Read checklist window selects
+  document.querySelectorAll('.sched-cl-sel').forEach(sel => {
+    const uid = sel.dataset.uid, section = sel.dataset.section;
+    if (!newSchedule[uid]) newSchedule[uid] = { shifts:[], checklists:{} };
+    if (sel.value) newSchedule[uid].checklists[section] = sel.value;
+  });
+
+  await cloudSet(SHIFT_SCHEDULE_KEY, newSchedule);
+  _loadedSchedule = null; // clear cache so next check reloads
+  showSyncOverlay(false);
+  showToast('✓ Shift schedule saved! Changes take effect on supervisors' next login.', false, true);
+}
+
+async function resetShiftSchedule() {
+  if (!confirm('Reset all shift schedules back to the original defaults?')) return;
+  showSyncOverlay(true);
+  await cloudSet(SHIFT_SCHEDULE_KEY, DEFAULT_SHIFT_SCHEDULE);
+  _loadedSchedule = null;
+  await buildScheduleTable();
+  showSyncOverlay(false);
+  showToast('✓ Schedule reset to defaults.', false, true);
 }
 
 // REMARKS
@@ -3117,6 +3378,8 @@ window.updateUmPinPrefix   = updateUmPinPrefix;
 window.openDeleteUserModal = openDeleteUserModal;
 window.closeDeleteUserModal= closeDeleteUserModal;
 window.confirmDeleteUser   = confirmDeleteUser;
+window.saveShiftSchedule   = saveShiftSchedule;
+window.resetShiftSchedule  = resetShiftSchedule;
 window.saveAlertSettings   = saveAlertSettings;
 window.testAlertEmail      = testAlertEmail;
 window.sendWhatsAppAlert   = sendWhatsAppAlert;
