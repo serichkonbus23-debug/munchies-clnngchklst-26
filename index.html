@@ -3385,10 +3385,20 @@ window.testAlertEmail      = testAlertEmail;
 window.sendWhatsAppAlert   = sendWhatsAppAlert;
 window.dismissAlert        = dismissAlert;
 
-window.addEventListener('load', async () => {
+// Modules load async — 'load' may already have fired by the time the module
+// is parsed on a real web server (GitHub Pages). Use DOMContentLoaded instead,
+// which is guaranteed to fire after the DOM is ready, and call directly as fallback.
+async function _bootApp() {
   await refreshLoginDropdown();
   showScreen('login');
-});
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', _bootApp);
+} else {
+  // DOM already ready (module loaded after DOMContentLoaded fired)
+  _bootApp();
+}
 </script>
 <!-- ADD / EDIT USER MODAL -->
 <div class="modal-overlay" id="user-modal">
