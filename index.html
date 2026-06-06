@@ -810,10 +810,8 @@ async function cloudGet(key) {
     }
     return null;
   } catch(e) {
-    console.warn('Firestore read failed:', e);
-    // Graceful fallback to localStorage so the app still works offline
-    try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : null; } catch(_) {}
-    return null;
+    console.warn('Firestore read failed, trying localStorage:', e);
+    try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : null; } catch(_) { return null; }
   }
 }
 
@@ -2832,8 +2830,16 @@ const DYNAMIC_USERS_KEY = 'shift_dynamic_users_v1';
 
 // Merge built-in USERS with any dynamic users from Firestore
 async function getAllUsers() {
-  const dynamic = await cloudGet(DYNAMIC_USERS_KEY) || {};
-  return { ...USERS, ...dynamic };
+  try {
+    const dynamic = await cloudGet(DYNAMIC_USERS_KEY) || {};
+    // Filter out tombstoned (deleted) built-in users
+    const merged = { ...USERS, ...dynamic };
+    Object.keys(merged).forEach(id => { if (merged[id]._deleted) delete merged[id]; });
+    return merged;
+  } catch(e) {
+    console.warn('getAllUsers: Firebase unavailable, using built-in USERS only.', e);
+    return { ...USERS };
+  }
 }
 
 async function saveDynamicUsers(dynamicUsers) {
@@ -3385,20 +3391,48 @@ window.testAlertEmail      = testAlertEmail;
 window.sendWhatsAppAlert   = sendWhatsAppAlert;
 window.dismissAlert        = dismissAlert;
 
-// Modules load async — 'load' may already have fired by the time the module
-// is parsed on a real web server (GitHub Pages). Use DOMContentLoaded instead,
-// which is guaranteed to fire after the DOM is ready, and call directly as fallback.
+// ── Boot sequence ────────────────────────────────────────────────────────
+// Modules are async on real servers (GitHub Pages). We cannot rely on the
+// 'load' event. Instead check readyState, and wrap everything in try/catch
+// so a slow/failing Firebase call never prevents the login screen showing.
 async function _bootApp() {
-  await refreshLoginDropdown();
+  try {
+    await refreshLoginDropdown();
+  } catch(e) {
+    console.warn('_bootApp: refreshLoginDropdown failed, falling back to built-in users.', e);
+    // Fall back: populate dropdown from built-in USERS only so login still works
+    _populateDropdownFromBuiltIn();
+  }
   showScreen('login');
 }
 
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', _bootApp);
-} else {
-  // DOM already ready (module loaded after DOMContentLoaded fired)
-  _bootApp();
+function _populateDropdownFromBuiltIn() {
+  const sel = document.getElementById('login-user');
+  if (!sel) return;
+  const managers = [], supervisors = [], assistants = [];
+  Object.entries(USERS).forEach(([id, u]) => {
+    if (u.role === 'manager' || u.role === 'overview_manager') managers.push([id, u]);
+    else if (u.role === 'supervisor') supervisors.push([id, u]);
+    else assistants.push([id, u]);
+  });
+  const makeOpts = arr => arr.map(([id,u]) => `<option value="${id}">${u.name}</option>`).join('');
+  sel.innerHTML = `<option value="">— Choose name —</option>
+    <optgroup label="Managers">${makeOpts(managers)}</optgroup>
+    <optgroup label="Supervisors">${makeOpts(supervisors)}</optgroup>
+    <optgroup label="Assistant Supervisors">${makeOpts(assistants)}</optgroup>`;
 }
+
+// Also make doLogin resilient — use USERS directly if Firebase getAllUsers fails
+const _origDoLogin = doLogin;
+
+function _safeInit() {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', _bootApp);
+  } else {
+    _bootApp();
+  }
+}
+_safeInit();
 </script>
 <!-- ADD / EDIT USER MODAL -->
 <div class="modal-overlay" id="user-modal">
