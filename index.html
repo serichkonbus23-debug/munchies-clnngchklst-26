@@ -4,6 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Shift Operations Portal</title>
+<!-- Firebase v9 compat SDK — used when Firebase backend is selected -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Mulish:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -20,6 +23,35 @@
 body{background:var(--bg);color:var(--text);font-family:'Mulish',sans-serif;min-height:100vh;font-size:14px}
 .screen{display:none;min-height:100vh}
 .screen.active{display:flex;flex-direction:column}
+
+/* BACKEND SELECTOR */
+#screen-backend{align-items:center;justify-content:center;background:linear-gradient(135deg,#1c3a28 0%,#2d5a3d 50%,#1a2e1f 100%);position:relative;overflow:hidden}
+#screen-backend::before{content:'';position:absolute;width:600px;height:600px;border-radius:50%;background:rgba(200,168,75,0.08);top:-200px;right:-200px}
+.backend-card{background:var(--surface);border-radius:20px;padding:40px 44px;width:520px;max-width:calc(100vw - 32px);box-shadow:var(--shadow-lg);position:relative;z-index:1;animation:slideUp .4s ease}
+.backend-card h2{font-family:'Playfair Display',serif;font-size:22px;margin-bottom:4px}
+.backend-card p{color:var(--muted);font-size:13px;margin-bottom:28px;line-height:1.5}
+.backend-options{display:flex;flex-direction:column;gap:12px;margin-bottom:24px}
+.backend-option{border:2px solid var(--border);border-radius:12px;padding:16px 18px;cursor:pointer;transition:all .2s;display:flex;align-items:flex-start;gap:14px;text-align:left;background:var(--surface);width:100%}
+.backend-option:hover{border-color:var(--accent);background:var(--accent-lt)}
+.backend-option.selected{border-color:var(--accent);background:var(--accent-lt)}
+.backend-option-icon{width:38px;height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;margin-top:1px}
+.backend-option-body{flex:1}
+.backend-option-title{font-weight:700;font-size:14px;margin-bottom:3px}
+.backend-option-desc{font-size:12px;color:var(--muted);line-height:1.5}
+.backend-credentials{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:20px;display:none}
+.backend-credentials.show{display:block}
+.backend-cred-field{margin-bottom:12px}
+.backend-cred-field:last-child{margin-bottom:0}
+.backend-cred-field label{display:block;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.backend-cred-field input{width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:'Mulish',sans-serif;font-size:13px;color:var(--text);background:var(--surface);outline:none;transition:border .2s}
+.backend-cred-field input:focus{border-color:var(--accent)}
+.backend-status{font-size:12px;padding:8px 12px;border-radius:8px;margin-bottom:16px;display:none}
+.backend-status.show{display:block}
+.backend-status.ok{background:#e8f0eb;color:var(--accent);border:1px solid #b8d4be}
+.backend-status.err{background:var(--danger-lt);color:var(--danger);border:1px solid #f5c6c0}
+/* LOCKED badge shown on login screen when backend is set */
+.backend-lock-badge{display:inline-flex;align-items:center;gap:6px;background:var(--accent-lt);border:1px solid var(--accent);color:var(--accent);border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;margin-bottom:20px;cursor:pointer}
+.backend-lock-badge:hover{background:#d0e4d5}
 
 /* LOGIN */
 #screen-login{align-items:center;justify-content:center;background:linear-gradient(135deg,#1c3a28 0%,#2d5a3d 50%,#1a2e1f 100%);position:relative;overflow:hidden}
@@ -316,6 +348,73 @@ body{background:var(--bg);color:var(--text);font-family:'Mulish',sans-serif;min-
 </head>
 <body>
 
+<!-- ══ BACKEND SELECTOR ══ -->
+<div id="screen-backend" class="screen">
+  <div class="backend-card">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
+      <div class="backend-option-icon" style="background:var(--accent-lt)">⚙️</div>
+      <div>
+        <div style="font-family:'Playfair Display',serif;font-size:20px;font-weight:700">Storage Backend</div>
+        <div style="font-size:12px;color:var(--muted)">Choose where the portal stores its data</div>
+      </div>
+    </div>
+
+    <div class="backend-options">
+      <button class="backend-option" id="bopt-supabase" onclick="selectBackend('supabase')">
+        <div class="backend-option-icon" style="background:#e8f5f0">🟢</div>
+        <div class="backend-option-body">
+          <div class="backend-option-title">Supabase (Recommended)</div>
+          <div class="backend-option-desc">Open-source, real-time, generous free tier. Needs a Supabase project URL and anon key.</div>
+        </div>
+      </button>
+      <button class="backend-option" id="bopt-sheets" onclick="selectBackend('sheets')">
+        <div class="backend-option-icon" style="background:#e8f4e8">📊</div>
+        <div class="backend-option-body">
+          <div class="backend-option-title">Google Sheets</div>
+          <div class="backend-option-desc">Data lives in a Google Sheet you can view directly. Needs a deployed Apps Script URL.</div>
+        </div>
+      </button>
+      <button class="backend-option" id="bopt-firebase" onclick="selectBackend('firebase')">
+        <div class="backend-option-icon" style="background:#fff3e0">🔥</div>
+        <div class="backend-option-body">
+          <div class="backend-option-title">Firebase Firestore</div>
+          <div class="backend-option-desc">Already configured with the Munchies project. Just click Save — no credentials needed.</div>
+        </div>
+      </button>
+    </div>
+
+    <!-- Credential fields (shown based on selection) -->
+    <div class="backend-credentials" id="backend-creds-supabase">
+      <div class="backend-cred-field">
+        <label>Supabase Project URL</label>
+        <input type="url" id="sb-url" placeholder="https://xxxx.supabase.co">
+      </div>
+      <div class="backend-cred-field">
+        <label>Supabase Anon Key</label>
+        <input type="text" id="sb-key" placeholder="eyJhbGciOiJIUzI1NiIsInR5c...">
+      </div>
+    </div>
+    <div class="backend-credentials" id="backend-creds-sheets">
+      <div class="backend-cred-field">
+        <label>Apps Script Web App URL</label>
+        <input type="url" id="gs-url" placeholder="https://script.google.com/macros/s/...">
+      </div>
+    </div>
+    <div class="backend-credentials" id="backend-creds-firebase">
+      <div style="font-size:13px;color:var(--muted);padding:4px 0">
+        ✅ Firebase is pre-configured with the Munchies project. No credentials needed — just save and go.
+      </div>
+    </div>
+
+    <div class="backend-status" id="backend-status"></div>
+
+    <div style="display:flex;gap:10px">
+      <button class="login-btn" style="margin-top:0;flex:1" onclick="saveBackendConfig()">💾 Save &amp; Continue</button>
+      <button class="login-btn" style="margin-top:0;background:#555;flex:0 0 auto;padding:14px 18px" onclick="testBackendConnection()">🔌 Test</button>
+    </div>
+  </div>
+</div>
+
 <!-- ══ LOGIN ══ -->
 <div id="screen-login" class="screen active">
   <div class="login-card">
@@ -324,6 +423,10 @@ body{background:var(--bg);color:var(--text);font-family:'Mulish',sans-serif;min-
     </div>
     <h1 style="margin-top:4px">Shift Operations</h1>
     <p>Sign in with your assigned PIN to continue</p>
+    <div id="no-backend-notice" style="display:none;background:#fff3e0;border:1px solid #ffe0b2;border-radius:8px;padding:10px 14px;font-size:12px;color:#e65100;margin-bottom:16px">
+      ⚠️ No storage backend configured. Data is saved locally only.
+      <button onclick="_promptBackendChange()" style="background:none;border:none;color:#e65100;font-weight:700;cursor:pointer;text-decoration:underline;font-size:12px;padding:0;margin-left:4px">Configure now</button>
+    </div>
     <div class="form-group">
       <label>Select Your Name</label>
       <select id="login-user">
@@ -649,25 +752,179 @@ body{background:var(--bg);color:var(--text);font-family:'Mulish',sans-serif;min-
 <div id="toast"></div>
 
 
-<script type="module">
+<script>
 // ════════════════════════════════
-// FIREBASE SETUP
+// BACKEND ENGINE — Supabase / Google Sheets / Firebase
 // ════════════════════════════════
-import { initializeApp }                     from "https://www.gstatic.com/firebasejs/12.14.0/firebase-app.js";
-import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-firestore.js";
+const BACKEND_CONFIG_KEY = 'shift_backend_config_v1';
 
-const firebaseConfig = {
-  apiKey:            "AIzaSyCcnrg-4y3_WtWGEEgrvRr33AxbC6XWeL4",
-  authDomain:        "munchies-cleanchklist-portal.firebaseapp.com",
-  projectId:         "munchies-cleanchklist-portal",
-  storageBucket:     "munchies-cleanchklist-portal.firebasestorage.app",
-  messagingSenderId: "582213823703",
-  appId:             "1:582213823703:web:aaf35ba814caad11679492",
-  measurementId:     "G-Q4N4803RV9"
+// Firebase pre-config (always embedded — no user input needed)
+const FIREBASE_CONFIG = {
+  apiKey:            'AIzaSyCcnrg-4y3_WtWGEEgrvRr33AxbC6XWeL4',
+  authDomain:        'munchies-cleanchklist-portal.firebaseapp.com',
+  projectId:         'munchies-cleanchklist-portal',
+  storageBucket:     'munchies-cleanchklist-portal.firebasestorage.app',
+  messagingSenderId: '582213823703',
+  appId:             '1:582213823703:web:aaf35ba814caad11679492',
 };
+let _fbDb = null; // lazy-initialised when Firebase is chosen
 
-const _fbApp = initializeApp(firebaseConfig);
-const _db    = getFirestore(_fbApp);
+function getBackendConfig() {
+  try { return JSON.parse(localStorage.getItem(BACKEND_CONFIG_KEY) || 'null'); } catch(_) { return null; }
+}
+function setBackendConfig(cfg) {
+  localStorage.setItem(BACKEND_CONFIG_KEY, JSON.stringify(cfg));
+}
+
+// ── Backend selector UI helpers ────────────────────────────────────────────
+let _selectedBackend = null;
+
+function selectBackend(type) {
+  _selectedBackend = type;
+  ['supabase','sheets','firebase'].forEach(t => {
+    document.getElementById('bopt-'+t).classList.toggle('selected', t === type);
+    document.getElementById('backend-creds-'+t).classList.toggle('show', t === type);
+  });
+  setBackendStatus('', '');
+}
+
+function setBackendStatus(msg, type) {
+  const el = document.getElementById('backend-status');
+  el.textContent = msg;
+  el.className = 'backend-status' + (msg ? ' show ' + type : '');
+}
+
+async function testBackendConnection() {
+  if (!_selectedBackend) { setBackendStatus('Please select a backend first.', 'err'); return; }
+  setBackendStatus('Testing connection…', 'ok');
+  const cfg = _buildConfigFromForm();
+  if (!cfg) return;
+  try {
+    await _cloudGetWithConfig('__connection_test__', cfg);
+    setBackendStatus('✅ Connection successful! Click Save & Continue.', 'ok');
+  } catch(e) {
+    setBackendStatus('❌ Connection failed: ' + e.message, 'err');
+  }
+}
+
+function _buildConfigFromForm() {
+  if (_selectedBackend === 'supabase') {
+    const url = document.getElementById('sb-url').value.trim();
+    const key = document.getElementById('sb-key').value.trim();
+    if (!url || !key) { setBackendStatus('Please fill in the Supabase URL and anon key.', 'err'); return null; }
+    return { type: 'supabase', url, key };
+  }
+  if (_selectedBackend === 'sheets') {
+    const url = document.getElementById('gs-url').value.trim();
+    if (!url) { setBackendStatus('Please paste your Apps Script URL.', 'err'); return null; }
+    return { type: 'sheets', url };
+  }
+  if (_selectedBackend === 'firebase') {
+    return { type: 'firebase' };
+  }
+  return null;
+}
+
+function saveBackendConfig() {
+  if (!_selectedBackend) { setBackendStatus('Please select a backend.', 'err'); return; }
+  const cfg = _buildConfigFromForm();
+  if (!cfg) return;
+  setBackendConfig(cfg);
+  _initBackend(cfg);
+  setBackendStatus('✅ Saved! Loading login…', 'ok');
+  setTimeout(() => showScreen('login'), 800);
+}
+
+// ── Low-level: GET/SET per backend type ────────────────────────────────────
+async function _cloudGetWithConfig(key, cfg) {
+  if (cfg.type === 'supabase') return await _sbGet(key, cfg.url, cfg.key);
+  if (cfg.type === 'sheets')   return await _gsGet(key, cfg.url);
+  if (cfg.type === 'firebase') return await _fbGet(key);
+  return null;
+}
+async function _cloudSetWithConfig(key, data, cfg) {
+  if (cfg.type === 'supabase') return await _sbSet(key, data, cfg.url, cfg.key);
+  if (cfg.type === 'sheets')   return await _gsSet(key, data, cfg.url);
+  if (cfg.type === 'firebase') return await _fbSet(key, data);
+}
+
+// ── Supabase helpers ───────────────────────────────────────────────────────
+async function _sbGet(key, url, anonKey) {
+  const headers = { 'apikey': anonKey, 'Authorization': 'Bearer ' + anonKey };
+  const res = await fetch(`${url}/rest/v1/shift_portal?key=eq.${encodeURIComponent(key)}&select=value`, { headers });
+  if (!res.ok) throw new Error('Supabase ' + res.status);
+  const rows = await res.json();
+  return rows.length ? rows[0].value : null;
+}
+async function _sbSet(key, data, url, anonKey) {
+  const headers = { 'Content-Type':'application/json', 'apikey':anonKey, 'Authorization':'Bearer '+anonKey, 'Prefer':'resolution=merge-duplicates' };
+  const res = await fetch(`${url}/rest/v1/shift_portal`, { method:'POST', headers, body: JSON.stringify({ key, value: data }) });
+  if (!res.ok) throw new Error('Supabase ' + res.status);
+}
+
+// ── Google Sheets helpers ──────────────────────────────────────────────────
+async function _gsGet(key, scriptUrl) {
+  const res = await fetch(`${scriptUrl}?key=${encodeURIComponent(key)}`);
+  if (!res.ok) throw new Error('Apps Script ' + res.status);
+  const text = await res.text();
+  if (!text || text === 'null') return null;
+  return JSON.parse(text);
+}
+async function _gsSet(key, data, scriptUrl) {
+  await fetch(scriptUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain' },
+    body: JSON.stringify({ key, value: JSON.stringify(data) }),
+  });
+}
+
+// ── Firebase helpers ───────────────────────────────────────────────────────
+function _initFirebase() {
+  if (!_fbDb) {
+    if (!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
+    _fbDb = firebase.firestore();
+  }
+}
+function _fsId(key) { return key.replace(/\//g, '__'); }
+async function _fbGet(key) {
+  _initFirebase();
+  const snap = await _fbDb.collection('shift_portal').doc(_fsId(key)).get();
+  if (!snap.exists) return null;
+  const raw = snap.data().value;
+  return raw !== undefined ? JSON.parse(raw) : null;
+}
+async function _fbSet(key, data) {
+  _initFirebase();
+  await _fbDb.collection('shift_portal').doc(_fsId(key)).set({ value: JSON.stringify(data) });
+}
+
+// ── Active backend config (loaded once on boot) ────────────────────────────
+let _activeConfig = null;
+
+function _initBackend(cfg) {
+  _activeConfig = cfg;
+  if (cfg.type === 'firebase') _initFirebase();
+}
+
+// ── Public cloudGet / cloudSet — routes to active backend ─────────────────
+async function cloudGet(key) {
+  try {
+    if (_activeConfig) {
+      const val = await _cloudGetWithConfig(key, _activeConfig);
+      if (val !== null) { try { localStorage.setItem(key, JSON.stringify(val)); } catch(_){} }
+      return val;
+    }
+  } catch(e) { console.warn('cloudGet backend failed, using localStorage:', e); }
+  // Fallback: localStorage
+  try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : null; } catch(_) { return null; }
+}
+
+async function cloudSet(key, data) {
+  // Always write to localStorage first (instant, offline-safe)
+  try { localStorage.setItem(key, JSON.stringify(data)); } catch(_) {}
+  if (!_activeConfig) return;
+  try { await _cloudSetWithConfig(key, data, _activeConfig); } catch(e) { console.warn('cloudSet backend failed:', e); }
+}
 
 // ════════════════════════════════
 // USERS
@@ -793,40 +1050,12 @@ const STORAGE_KEYS = {
   remarks: (date) => `shift_remarks:${date}`,
 };
 
-// Firestore keys can't contain '/' but colons/dots are fine.
-// We store everything in a single collection "shift_portal".
-function _fsDocId(key) {
-  // Replace characters not allowed in Firestore doc IDs
-  return key.replace(/\//g, '__');
-}
-
 async function cloudGet(key) {
-  try {
-    const ref  = doc(_db, 'shift_portal', _fsDocId(key));
-    const snap = await getDoc(ref);
-    if (snap.exists()) {
-      const raw = snap.data().value;
-      return raw != null ? JSON.parse(raw) : null;
-    }
-    return null;
-  } catch(e) {
-    console.warn('Firestore read failed:', e);
-    // Graceful fallback to localStorage so the app still works offline
-    try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : null; } catch(_) {}
-    return null;
-  }
+  try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : null; } catch(_) { return null; }
 }
 
 async function cloudSet(key, data) {
-  try {
-    const ref = doc(_db, 'shift_portal', _fsDocId(key));
-    await setDoc(ref, { value: JSON.stringify(data) });
-    // Mirror to localStorage as an offline cache
-    try { localStorage.setItem(key, JSON.stringify(data)); } catch(_) {}
-  } catch(e) {
-    console.warn('Firestore write failed, falling back to localStorage:', e);
-    try { localStorage.setItem(key, JSON.stringify(data)); } catch(_) {}
-  }
+  try { localStorage.setItem(key, JSON.stringify(data)); } catch(_) {}
 }
 
 async function loadMasterChecklists() {
@@ -2179,21 +2408,23 @@ function exportReportPDF() {
   const content = document.getElementById('report-content');
   if (!content) { showToast('Generate a report first.',true); return; }
   const w = window.open('','_blank');
-  w.document.write(`<html><head><title>Shift Compliance Report</title>
-    <link href="https://fonts.googleapis.com/css2?family=Mulish:wght@400;600;700&display=swap" rel="stylesheet">
-    <style>
-      body{font-family:'Mulish',sans-serif;font-size:13px;color:#1c1a17;padding:32px;max-width:900px;margin:0 auto}
-      table{width:100%;border-collapse:collapse;margin-bottom:12px}
-      th,td{padding:6px 10px;border:1px solid #e4e0d8;text-align:left}
-      th{background:#faf9f7;font-weight:700}
-      h2{font-size:20px;margin:0 0 4px}
-      .sec{background:#fff;border:1px solid #e4e0d8;border-radius:10px;padding:16px;margin-bottom:16px;page-break-inside:avoid}
-      @media print{body{padding:16px}.sec{page-break-inside:avoid}}
-    </style></head><body>
-    <h2>Shift Compliance Report</h2>
-    <p style="color:#8a8478;margin-bottom:20px">Generated ${new Date().toLocaleString('en-GB')}</p>
-    ${content.innerHTML}
-    </body></html>`);
+  const reportCSS = [
+    'body{font-family:\'Mulish\',sans-serif;font-size:13px;color:#1c1a17;padding:32px;max-width:900px;margin:0 auto}',
+    'table{width:100%;border-collapse:collapse;margin-bottom:12px}',
+    'th,td{padding:6px 10px;border:1px solid #e4e0d8;text-align:left}',
+    'th{background:#faf9f7;font-weight:700}',
+    'h2{font-size:20px;margin:0 0 4px}',
+    '.sec{background:#fff;border:1px solid #e4e0d8;border-radius:10px;padding:16px;margin-bottom:16px;page-break-inside:avoid}',
+    '@media print{body{padding:16px}.sec{page-break-inside:avoid}}'
+  ].join('');
+  const reportHTML = '<html><head><title>Shift Compliance Report<\/title>'
+    + '<link href="https://fonts.googleapis.com/css2?family=Mulish:wght@400;600;700&display=swap" rel="stylesheet">'
+    + '<style>' + reportCSS + '<\/style><\/head><body>'
+    + '<h2>Shift Compliance Report<\/h2>'
+    + '<p style="color:#8a8478;margin-bottom:20px">Generated ' + new Date().toLocaleString('en-GB') + '<\/p>'
+    + content.innerHTML
+    + '<\/body><\/html>';
+  w.document.write(reportHTML);
   w.document.close();
   setTimeout(() => w.print(), 800);
 }
@@ -2319,7 +2550,7 @@ async function saveShiftSchedule() {
   await cloudSet(SHIFT_SCHEDULE_KEY, newSchedule);
   _loadedSchedule = null; // clear cache so next check reloads
   showSyncOverlay(false);
-  showToast('✓ Shift schedule saved! Changes take effect on supervisors' next login.', false, true);
+  showToast("✓ Shift schedule saved! Changes take effect on supervisors' next login.", false, true);
 }
 
 async function resetShiftSchedule() {
@@ -2832,8 +3063,16 @@ const DYNAMIC_USERS_KEY = 'shift_dynamic_users_v1';
 
 // Merge built-in USERS with any dynamic users from Firestore
 async function getAllUsers() {
-  const dynamic = await cloudGet(DYNAMIC_USERS_KEY) || {};
-  return { ...USERS, ...dynamic };
+  try {
+    const dynamic = await cloudGet(DYNAMIC_USERS_KEY) || {};
+    // Filter out tombstoned (deleted) built-in users
+    const merged = { ...USERS, ...dynamic };
+    Object.keys(merged).forEach(id => { if (merged[id]._deleted) delete merged[id]; });
+    return merged;
+  } catch(e) {
+    console.warn('getAllUsers: Firebase unavailable, using built-in USERS only.', e);
+    return { ...USERS };
+  }
 }
 
 async function saveDynamicUsers(dynamicUsers) {
@@ -3367,6 +3606,9 @@ window.saveTabSettings     = saveTabSettings;
 window.deleteCustomTab     = deleteCustomTab;
 window.updateInitials      = updateInitials;
 window.clearSigPad         = clearSigPad;
+window.selectBackend       = selectBackend;
+window.saveBackendConfig   = saveBackendConfig;
+window.testBackendConnection = testBackendConnection;
 window.generateReport      = generateReport;
 window.exportReportPDF     = exportReportPDF;
 window.exportReportExcel   = exportReportExcel;
@@ -3385,10 +3627,96 @@ window.testAlertEmail      = testAlertEmail;
 window.sendWhatsAppAlert   = sendWhatsAppAlert;
 window.dismissAlert        = dismissAlert;
 
-window.addEventListener('load', async () => {
-  await refreshLoginDropdown();
+// ── Boot sequence ────────────────────────────────────────────────────────
+// Modules are async on real servers (GitHub Pages). We cannot rely on the
+// 'load' event. Instead check readyState, and wrap everything in try/catch
+// so a slow/failing Firebase call never prevents the login screen showing.
+async function _bootApp() {
+  // Load and initialise the stored backend config (if any)
+  const cfg = getBackendConfig();
+  if (cfg) _initBackend(cfg);
+
+  // Show login immediately using built-in users so the screen is never blank
+  _populateDropdownFromBuiltIn();
   showScreen('login');
-});
+  _renderBackendBadge(cfg);
+
+  // Then try to refresh the dropdown from the backend in the background
+  try { await refreshLoginDropdown(); } catch(e) {
+    console.warn('refreshLoginDropdown failed, using built-in users.', e);
+  }
+}
+
+function _renderBackendBadge(cfg) {
+  // Show/hide the no-backend notice
+  const notice = document.getElementById('no-backend-notice');
+  if (notice) notice.style.display = cfg ? 'none' : 'block';
+
+  // Remove any existing badge
+  const existing = document.getElementById('backend-login-badge');
+  if (existing) existing.remove();
+  if (!cfg) return;
+
+  const labels = { supabase:'🟢 Supabase', sheets:'📊 Google Sheets', firebase:'🔥 Firebase' };
+  const badge = document.createElement('div');
+  badge.id = 'backend-login-badge';
+  badge.className = 'backend-lock-badge';
+  badge.title = 'Click to change backend (Richmond only)';
+  badge.innerHTML = `${labels[cfg.type] || cfg.type} <span style="color:var(--muted);font-weight:400">storage active</span> <span style="font-size:10px;opacity:.6">🔒</span>`;
+  badge.onclick = () => _promptBackendChange();
+  const card = document.querySelector('.login-card h1');
+  if (card) card.parentNode.insertBefore(badge, card);
+}
+
+function _promptBackendChange() {
+  const pin = prompt("Enter Richmond's PIN to change the backend:");
+  if (!pin) return;
+  if (pin.toUpperCase() !== USERS.richmond.pin.toUpperCase()) {
+    alert('Incorrect PIN. Only Richmond can change the storage backend.');
+    return;
+  }
+  // Pre-fill existing config
+  const cfg = getBackendConfig();
+  if (cfg) {
+    selectBackend(cfg.type);
+    if (cfg.type === 'supabase') {
+      document.getElementById('sb-url').value = cfg.url || '';
+      document.getElementById('sb-key').value = cfg.key || '';
+    }
+    if (cfg.type === 'sheets') {
+      document.getElementById('gs-url').value = cfg.url || '';
+    }
+  }
+  showScreen('backend');
+}
+
+function _populateDropdownFromBuiltIn() {
+  const sel = document.getElementById('login-user');
+  if (!sel) return;
+  const managers = [], supervisors = [], assistants = [];
+  Object.entries(USERS).forEach(([id, u]) => {
+    if (u.role === 'manager' || u.role === 'overview_manager') managers.push([id, u]);
+    else if (u.role === 'supervisor') supervisors.push([id, u]);
+    else assistants.push([id, u]);
+  });
+  const makeOpts = arr => arr.map(([id,u]) => `<option value="${id}">${u.name}</option>`).join('');
+  sel.innerHTML = `<option value="">— Choose name —</option>
+    <optgroup label="Managers">${makeOpts(managers)}</optgroup>
+    <optgroup label="Supervisors">${makeOpts(supervisors)}</optgroup>
+    <optgroup label="Assistant Supervisors">${makeOpts(assistants)}</optgroup>`;
+}
+
+// Also make doLogin resilient — use USERS directly if Firebase getAllUsers fails
+const _origDoLogin = doLogin;
+
+function _safeInit() {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', _bootApp);
+  } else {
+    _bootApp();
+  }
+}
+_safeInit();
 </script>
 <!-- ADD / EDIT USER MODAL -->
 <div class="modal-overlay" id="user-modal">
