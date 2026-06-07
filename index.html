@@ -44,6 +44,21 @@ body{background:var(--bg);color:var(--text);font-family:'Mulish',sans-serif;min-
 .screen{display:none;min-height:100vh}
 .screen.active{display:flex;flex-direction:column}
 
+/* SHIFT TIME INDICATOR */
+.shift-indicator{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:20px;font-size:12px;font-weight:700;letter-spacing:.04em;border:1.5px solid transparent}
+.shift-indicator .shift-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;animation:pulseDot 2s infinite}
+@keyframes pulseDot{0%,100%{opacity:1}50%{opacity:.4}}
+.shift-indicator.morning{background:#e8f0eb;border-color:#2D5A3D;color:#2D5A3D}
+.shift-indicator.morning .shift-dot{background:#2D5A3D}
+.shift-indicator.afternoon{background:#e8f4fd;border-color:#1A6B8A;color:#1A6B8A}
+.shift-indicator.afternoon .shift-dot{background:#1A6B8A}
+.shift-indicator.closing{background:#fdf0e8;border-color:#8B4513;color:#8B4513}
+.shift-indicator.closing .shift-dot{background:#8B4513}
+.shift-indicator.catchup{background:#fdf6e3;border-color:#C8A84B;color:#9a7d1a}
+.shift-indicator.catchup .shift-dot{background:#C8A84B}
+.shift-indicator.outside{background:#f5f3ef;border-color:#ccc;color:#888}
+.shift-indicator.outside .shift-dot{background:#ccc;animation:none}
+
 /* BACKEND SELECTOR */
 #screen-backend{align-items:center;justify-content:center;background:linear-gradient(135deg,#1c3a28 0%,#2d5a3d 50%,#1a2e1f 100%);position:relative;overflow:hidden}
 #screen-backend::before{content:'';position:absolute;width:600px;height:600px;border-radius:50%;background:rgba(200,168,75,0.08);top:-200px;right:-200px}
@@ -492,6 +507,7 @@ body{background:var(--bg);color:var(--text);font-family:'Mulish',sans-serif;min-
     </div>
     <div class="header-right">
       <div class="date-badge" id="sup-date-badge"></div>
+      <div id="sup-shift-indicator"></div>
       <div class="user-chip">
         <div class="user-avatar role-supervisor" id="sup-avatar"></div>
         <div><div class="user-name" id="sup-name-display"></div><div class="user-role" id="sup-role-display"></div></div>
@@ -1309,6 +1325,7 @@ async function doLogin() {
   showSyncOverlay(false);
 }
 function logout() {
+  if (window._shiftIndicatorTimer) { clearInterval(window._shiftIndicatorTimer); window._shiftIndicatorTimer = null; }
   stopAlertChecker();
   _loadedSchedule = null; // clear schedule cache on logout
   currentUser = null;
@@ -1418,6 +1435,10 @@ async function enterSupervisor() {
   av.className = 'user-avatar ' + (u.role==='asst' ? 'role-asst' : 'role-supervisor');
   const today = getTodayStr();
   document.getElementById('sup-date-badge').textContent = formatDateNice(today);
+  _updateShiftIndicator();
+  // Refresh every minute so the badge updates when a new window opens/closes
+  if (window._shiftIndicatorTimer) clearInterval(window._shiftIndicatorTimer);
+  window._shiftIndicatorTimer = setInterval(_updateShiftIndicator, 60000);
 
   const cl = await loadMasterChecklists();
   // inject custom CSS for any custom tabs
@@ -3725,6 +3746,60 @@ window.saveAlertSettings   = saveAlertSettings;
 window.testAlertEmail      = testAlertEmail;
 window.sendWhatsAppAlert   = sendWhatsAppAlert;
 window.dismissAlert        = dismissAlert;
+
+// ════════════════════════════════
+// SHIFT TIME INDICATOR
+// ════════════════════════════════
+function _updateShiftIndicator() {
+  const el = document.getElementById('sup-shift-indicator');
+  if (!el) return;
+
+  const now = new Date();
+  const h   = now.getHours();
+  const m   = now.getMinutes();
+  const mins = h * 60 + m;
+
+  // Window boundaries in minutes
+  const WINDOWS = [
+    { key:'morning',   label:'Morning Shift',   start: 9*60,      end: 12*60,      cls:'morning'   },
+    { key:'afternoon', label:'Afternoon Shift',  start: 14*60,     end: 17*60,      cls:'afternoon' },
+    { key:'closing',   label:'Closing Shift',    start: 23*60+30,  end: 26*60+30,   cls:'closing'   }, // 2:30am = 26:30
+  ];
+  // Afternoon catch-up is same as afternoon window — already covered above
+
+  // Check closing window (spans midnight: 23:30 – 02:30)
+  const inClosing = mins >= 23*60+30 || mins <= 2*60+30;
+
+  let matched = null;
+  if (inClosing) {
+    matched = WINDOWS[2];
+  } else {
+    matched = WINDOWS.find(w => w.key !== 'closing' && mins >= w.start && mins <= w.end) || null;
+  }
+
+  // Determine next window start for "outside" message
+  function nextWindowLabel() {
+    if (mins < 9*60)        return 'Morning window opens at 9:00 AM';
+    if (mins < 14*60)       return 'Afternoon window opens at 2:00 PM';
+    if (mins < 23*60+30)    return 'Closing window opens at 11:30 PM';
+    return 'Morning window opens at 9:00 AM';
+  }
+
+  if (matched) {
+    const timeRange = matched.key === 'morning'   ? '9:00 AM – 12:00 PM'  :
+                      matched.key === 'afternoon' ? '2:00 PM – 5:00 PM'   :
+                                                    '11:30 PM – 2:30 AM';
+    el.innerHTML = `<span class="shift-indicator ${matched.cls}">
+      <span class="shift-dot"></span>
+      ${matched.label} &nbsp;·&nbsp; ${timeRange}
+    </span>`;
+  } else {
+    el.innerHTML = `<span class="shift-indicator outside">
+      <span class="shift-dot"></span>
+      Outside shift hours &nbsp;·&nbsp; ${nextWindowLabel()}
+    </span>`;
+  }
+}
 
 // ── Boot sequence ────────────────────────────────────────────────────────
 // Modules are async on real servers (GitHub Pages). We cannot rely on the
