@@ -1954,6 +1954,9 @@ async function enterManager() {
   if (alertPanel) alertPanel.style.display = isRichmondMgr ? 'block' : 'none';
   if (isRichmondMgr) loadAlertSettingsIntoForm();
 
+  // Check Firebase connectivity on every manager login and show a banner if broken
+  _checkFirebaseConnectivity();
+
   // Restrict overview_manager to Overview + Reports only
   const isOverviewOnly = currentUser.role === 'overview_manager';
   const isFullManager  = currentUser.role === 'manager';
@@ -3133,12 +3136,13 @@ async function _buildUsersTableAsync() {
   tbody.innerHTML = '';
 
   const isRichmond = currentUser?.id === 'richmond';
+  const canManageUsers = currentUser?.id === 'richmond' || currentUser?.id === 'mariam';
 
   // Show/hide Add User button and Actions column header
   const addBar = document.getElementById('add-user-bar');
   const actionsHeader = document.getElementById('users-actions-header');
-  if (addBar) addBar.style.display = isRichmond ? 'block' : 'none';
-  if (actionsHeader) actionsHeader.style.display = isRichmond ? '' : 'none';
+  if (addBar) addBar.style.display = canManageUsers ? 'block' : 'none';
+  if (actionsHeader) actionsHeader.style.display = canManageUsers ? '' : 'none';
 
   const allUsers = await getAllUsers();
   const dynamic = await getDynamicUsers();
@@ -3156,7 +3160,7 @@ async function _buildUsersTableAsync() {
     }).join(', ');
 
     let actionsHTML = '';
-    if (isRichmond) {
+    if (canManageUsers) {
       actionsHTML = `
         <button onclick="openUserModal('${id}')" style="background:none;border:1px solid var(--border);border-radius:6px;padding:5px 10px;cursor:pointer;font-size:11px;font-weight:600;color:var(--muted);transition:all .2s" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">✏️ Edit</button>
         <button onclick="openDeleteUserModal('${id}')" style="background:none;border:1px solid var(--border);border-radius:6px;padding:5px 10px;cursor:pointer;font-size:11px;font-weight:600;color:var(--muted);margin-left:6px;transition:all .2s" onmouseover="this.style.borderColor='var(--danger)';this.style.color='var(--danger)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">🗑 Remove</button>`;
@@ -3167,7 +3171,7 @@ async function _buildUsersTableAsync() {
       <td><span class="role-chip ${roleChipCls[u.role] || 'chip-asst'}">${roleLabel[u.role] || u.role}</span></td>
       <td style="font-size:12px;color:var(--muted)">${accessLabel}</td>
       <td><span class="pin-reveal" onclick="this.textContent=this.textContent==='●●●●●●●'?'${u.pin}':'●●●●●●●'" title="Click to reveal PIN">●●●●●●●</span></td>
-      ${isRichmond ? `<td>${actionsHTML}</td>` : ''}`;
+      ${canManageUsers ? `<td>${actionsHTML}</td>` : ''}`;
     tbody.appendChild(tr);
   });
 }
@@ -3604,6 +3608,62 @@ async function testAlertEmail() {
   showToast(success ? '✓ Test email sent!' : '✗ Email failed — check your EmailJS credentials.', !success, success);
 }
 
+// ════════════════════════════════
+// FIREBASE CONNECTIVITY CHECK
+// ════════════════════════════════
+async function _checkFirebaseConnectivity() {
+  try {
+    // Try writing and reading a small test document
+    await _fbSet('__connectivity_check__', { ts: Date.now() });
+    const result = await _fbGet('__connectivity_check__');
+    if (result && result.ts) {
+      _showFirebaseBanner('ok');
+    } else {
+      _showFirebaseBanner('warn');
+    }
+  } catch(e) {
+    console.warn('Firebase connectivity check failed:', e);
+    _showFirebaseBanner('error', e.message);
+  }
+}
+
+function _showFirebaseBanner(status, errMsg) {
+  // Remove existing banner
+  const existing = document.getElementById('firebase-status-banner');
+  if (existing) existing.remove();
+
+  if (status === 'ok') return; // All good — no banner needed
+
+  const banner = document.createElement('div');
+  banner.id = 'firebase-status-banner';
+
+  if (status === 'error') {
+    banner.style.cssText = 'background:#fdf0ee;border:1.5px solid #e74c3c;border-radius:12px;padding:14px 18px;margin-bottom:20px;font-size:13px;color:#c0392b;';
+    banner.innerHTML = `
+      <strong>⚠️ Firebase not reachable from this device</strong><br>
+      <span style="color:#888;font-size:12px">Entries made here will save locally only and won't sync across devices until the connection is restored.</span><br>
+      <div style="margin-top:10px;padding:10px;background:#fff;border-radius:8px;font-size:12px;color:#555;line-height:1.6">
+        <strong>Most likely fix — Firestore rules have expired (30-day test mode limit):</strong><br>
+        1. Go to <a href="https://console.firebase.google.com" target="_blank" style="color:#c0392b">console.firebase.google.com</a><br>
+        2. Select your project → <strong>Firestore Database</strong> → <strong>Rules</strong><br>
+        3. Replace the rules with:<br>
+        <code style="display:block;background:#f5f3ef;padding:8px;border-radius:6px;margin-top:6px;font-size:11px">rules_version = '2';<br>service cloud.firestore {<br>&nbsp;&nbsp;match /databases/{database}/documents {<br>&nbsp;&nbsp;&nbsp;&nbsp;match /shift_portal/{document=**} {<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;allow read, write: if true;<br>&nbsp;&nbsp;&nbsp;&nbsp;}<br>&nbsp;&nbsp;}<br>}</code>
+        4. Click <strong>Publish</strong> → then refresh this page.
+      </div>
+      <button onclick="document.getElementById('firebase-status-banner').remove()" 
+        style="margin-top:10px;background:none;border:1px solid #e74c3c;border-radius:6px;padding:5px 12px;cursor:pointer;font-size:12px;color:#c0392b">
+        Dismiss
+      </button>`;
+  } else {
+    banner.style.cssText = 'background:#fff3e0;border:1.5px solid #f39c12;border-radius:12px;padding:12px 18px;margin-bottom:20px;font-size:13px;color:#e67e22;';
+    banner.innerHTML = `⚠️ Firebase connected but returned unexpected data. Sync may be unreliable. Try refreshing.`;
+  }
+
+  // Insert at top of the overview view
+  const overviewView = document.getElementById('view-overview');
+  if (overviewView) overviewView.insertBefore(banner, overviewView.firstChild);
+}
+
 // TOAST
 let toastTimer;
 function showToast(msg,isError=false,isGold=false) {
@@ -3772,8 +3832,9 @@ async function buildTeamsSection() {
   const teamsSection = document.getElementById('teams-section');
   if (!teamsSection) return;
   const isRichmond = currentUser?.id === 'richmond';
-  teamsSection.style.display = isRichmond ? 'block' : 'none';
-  if (!isRichmond) return;
+  const canManageTeams = currentUser?.id === 'richmond' || currentUser?.id === 'mariam';
+  teamsSection.style.display = canManageTeams ? 'block' : 'none';
+  if (!canManageTeams) return;
 
   const teams = await loadTeams();
   const allUsers = await getAllUsers();
