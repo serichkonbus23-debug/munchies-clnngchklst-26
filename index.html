@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Shift Operations Portal</title>
+<title>Shift Operations Portal — Firebase</title>
 <!-- Firebase v9 compat SDK — used when Firebase backend is selected -->
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
@@ -19,6 +19,26 @@
   --asst-color:#1a6b8a;--asst-lt:#e6f4f9;
   --shadow:0 2px 12px rgba(0,0,0,0.08);--shadow-lg:0 8px 32px rgba(0,0,0,0.12);
 }
+
+/* TEAMS MANAGEMENT */
+.teams-section{margin-top:32px;padding-top:28px;border-top:2px solid var(--border)}
+.teams-section-title{font-family:'Playfair Display',serif;font-size:18px;margin-bottom:4px;display:flex;align-items:center;gap:10px}
+.teams-section-subtitle{font-size:13px;color:var(--muted);margin-bottom:20px}
+.teams-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;margin-bottom:20px}
+.team-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;box-shadow:var(--shadow)}
+.team-card-header{padding:14px 16px 10px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)}
+.team-card-name{font-weight:700;font-size:15px;font-family:'Playfair Display',serif}
+.team-card-pin{font-family:monospace;font-weight:700;font-size:13px;background:var(--accent-lt);color:var(--accent);border:1px solid var(--accent);padding:3px 10px;border-radius:6px;cursor:pointer;transition:background .15s;user-select:none}
+.team-card-pin:hover{background:#d0e4d5}
+.team-card-body{padding:12px 16px}
+.team-members-list{display:flex;flex-wrap:wrap;gap:6px;min-height:28px}
+.team-member-chip{font-size:11px;padding:3px 10px;border-radius:20px;background:var(--surface2);border:1px solid var(--border);color:var(--text)}
+.team-card-actions{padding:10px 16px;border-top:1px solid var(--border);background:var(--surface2);display:flex;gap:8px}
+.team-action-btn{background:none;border:1px solid var(--border);border-radius:6px;padding:5px 12px;cursor:pointer;font-family:'Mulish',sans-serif;font-size:11px;font-weight:600;color:var(--muted);transition:all .2s}
+.team-action-btn:hover{border-color:var(--accent);color:var(--accent)}
+.team-action-btn.danger:hover{border-color:var(--danger);color:var(--danger)}
+.teams-empty{text-align:center;padding:32px;color:var(--muted);font-size:13px;background:var(--surface2);border:1px dashed var(--border);border-radius:12px}
+
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 body{background:var(--bg);color:var(--text);font-family:'Mulish',sans-serif;min-height:100vh;font-size:14px}
 .screen{display:none;min-height:100vh}
@@ -683,6 +703,24 @@ body{background:var(--bg);color:var(--text);font-family:'Mulish',sans-serif;min-
           <thead><tr><th>Name</th><th>Role</th><th>Access</th><th>PIN</th><th id="users-actions-header" style="display:none">Actions</th></tr></thead>
           <tbody id="users-table-body"></tbody>
         </table>
+
+        <!-- TEAMS SECTION — Richmond only -->
+        <div class="teams-section" id="teams-section" style="display:none">
+          <div class="teams-section-title">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2"/><line x1="12" y1="12" x2="12" y2="16"/><line x1="10" y1="14" x2="14" y2="14"/></svg>
+            Teams
+          </div>
+          <div class="teams-section-subtitle">Create named teams and assign a shared team PIN. Useful for grouping staff by shift or area. Click any PIN to reveal it.</div>
+
+          <div id="add-team-bar" style="margin-bottom:18px">
+            <button class="submit-btn" style="padding:9px 20px;font-size:13px" onclick="openTeamModal()">+ Create New Team</button>
+          </div>
+
+          <div class="teams-grid" id="teams-grid">
+            <div class="teams-empty" id="teams-empty">No teams yet. Click "Create New Team" to get started.</div>
+          </div>
+        </div>
+
       </div>
     </div>
 
@@ -1943,7 +1981,7 @@ async function enterManager() {
 
   await buildMgrClView();
   await loadManagerView();
-  if (!isOverviewOnly) { await buildEditorView(); await _buildUsersTableAsync(); }
+  if (!isOverviewOnly) { await buildEditorView(); await _buildUsersTableAsync(); await buildTeamsSection(); }
   await buildRemarkAreaSelect();
   await initReportFilters();
   if (isFullManager) await buildScheduleTable();
@@ -1958,6 +1996,7 @@ function switchMgrView(view) {
   document.getElementById('view-'+view).classList.add('active');
   document.querySelectorAll('.mgr-tab-btn').forEach(b => b.classList.remove('active'));
   document.getElementById('btn-view-'+view)?.classList.add('active');
+  if (view === 'users') { buildUsersTable(); buildTeamsSection(); }
 }
 
 async function buildRemarkAreaSelect() {
@@ -3632,9 +3671,15 @@ window.dismissAlert        = dismissAlert;
 // 'load' event. Instead check readyState, and wrap everything in try/catch
 // so a slow/failing Firebase call never prevents the login screen showing.
 async function _bootApp() {
-  // Load and initialise the stored backend config (if any)
-  const cfg = getBackendConfig();
-  if (cfg) _initBackend(cfg);
+  // Firebase is the default backend — auto-initialise without user configuration
+  const FIREBASE_DEFAULT_CFG = { type: 'firebase' };
+  let cfg = getBackendConfig();
+  if (!cfg) {
+    // No prior config stored — set Firebase as default
+    cfg = FIREBASE_DEFAULT_CFG;
+    setBackendConfig(cfg);
+  }
+  _initBackend(cfg);
 
   // Show login immediately using built-in users so the screen is never blank
   _populateDropdownFromBuiltIn();
@@ -3708,6 +3753,189 @@ function _populateDropdownFromBuiltIn() {
 
 // Also make doLogin resilient — use USERS directly if Firebase getAllUsers fails
 const _origDoLogin = doLogin;
+
+
+// ════════════════════════════════
+// TEAMS MANAGEMENT (Richmond only)
+// ════════════════════════════════
+const TEAMS_KEY = 'shift_teams_v1';
+
+async function loadTeams() {
+  return await cloudGet(TEAMS_KEY) || {};
+}
+async function saveTeams(teams) {
+  await cloudSet(TEAMS_KEY, teams);
+}
+
+// Build and render the teams grid
+async function buildTeamsSection() {
+  const teamsSection = document.getElementById('teams-section');
+  if (!teamsSection) return;
+  const isRichmond = currentUser?.id === 'richmond';
+  teamsSection.style.display = isRichmond ? 'block' : 'none';
+  if (!isRichmond) return;
+
+  const teams = await loadTeams();
+  const allUsers = await getAllUsers();
+  const grid = document.getElementById('teams-grid');
+  const empty = document.getElementById('teams-empty');
+  if (!grid) return;
+
+  const entries = Object.entries(teams).filter(([,t]) => !t._deleted);
+  if (entries.length === 0) {
+    grid.innerHTML = '<div class="teams-empty" id="teams-empty">No teams yet. Click "Create New Team" to get started.</div>';
+    return;
+  }
+  grid.innerHTML = '';
+  entries.forEach(([id, team]) => {
+    const card = document.createElement('div');
+    card.className = 'team-card';
+    const memberNames = (team.members || [])
+      .map(uid => allUsers[uid]?.name?.split(' ')[0] || uid)
+      .filter(Boolean);
+    const memberChips = memberNames.length
+      ? memberNames.map(n => `<span class="team-member-chip">${n}</span>`).join('')
+      : '<span style="font-size:12px;color:var(--muted);font-style:italic">No members assigned</span>';
+    const maskedPin = '●●●●●●●●';
+    card.innerHTML = `
+      <div class="team-card-header">
+        <div class="team-card-name">${team.name}</div>
+        <span class="team-card-pin" title="Click to reveal PIN"
+          onclick="this.textContent=this.textContent==='${maskedPin}'?'${team.pin}':'${maskedPin}'">${maskedPin}</span>
+      </div>
+      <div class="team-card-body">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:8px">Members (${memberNames.length})</div>
+        <div class="team-members-list">${memberChips}</div>
+      </div>
+      <div class="team-card-actions">
+        <button class="team-action-btn" onclick="openTeamModal('${id}')">✏️ Edit</button>
+        <button class="team-action-btn danger" onclick="openDeleteTeamModal('${id}')">🗑 Delete</button>
+      </div>`;
+    grid.appendChild(card);
+  });
+}
+
+// ── Team modal ─────────────────────────────────────────────────────────────
+async function openTeamModal(editId = null) {
+  const allUsers = await getAllUsers();
+  const memberBox = document.getElementById('tm-member-checkboxes');
+  memberBox.innerHTML = '';
+
+  // Populate member checkboxes (all non-deleted users)
+  const grouped = { Managers:[], Supervisors:[], Assistants:[] };
+  Object.entries(allUsers).forEach(([id, u]) => {
+    if (u._deleted) return;
+    const entry = [id, u];
+    if (u.role === 'manager' || u.role === 'overview_manager') grouped.Managers.push(entry);
+    else if (u.role === 'supervisor') grouped.Supervisors.push(entry);
+    else grouped.Assistants.push(entry);
+  });
+  Object.entries(grouped).forEach(([groupLabel, members]) => {
+    if (!members.length) return;
+    const hdr = document.createElement('div');
+    hdr.style.cssText = 'font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);padding:4px 0 2px';
+    hdr.textContent = groupLabel;
+    memberBox.appendChild(hdr);
+    members.forEach(([id, u]) => {
+      const lbl = document.createElement('label');
+      lbl.className = 'sup-checkbox-row';
+      lbl.innerHTML = `<input type="checkbox" value="${id}" style="accent-color:var(--accent)"><span>${u.name}</span>`;
+      memberBox.appendChild(lbl);
+    });
+  });
+
+  document.getElementById('team-modal-edit-id').value = editId || '';
+  if (editId) {
+    const teams = await loadTeams();
+    const team = teams[editId];
+    if (!team) return;
+    document.getElementById('team-modal-title').textContent = 'Edit Team';
+    document.getElementById('team-modal-save-btn').textContent = 'Save Changes';
+    document.getElementById('tm-name').value = team.name || '';
+    const suffix = (team.pin || '').replace(/^TEAM/, '');
+    document.getElementById('tm-pin-suffix').value = suffix;
+    (team.members || []).forEach(uid => {
+      const cb = memberBox.querySelector(`input[value="${uid}"]`);
+      if (cb) cb.checked = true;
+    });
+  } else {
+    document.getElementById('team-modal-title').textContent = 'Create New Team';
+    document.getElementById('team-modal-save-btn').textContent = 'Create Team';
+    document.getElementById('tm-name').value = '';
+    document.getElementById('tm-pin-suffix').value = '';
+  }
+  document.getElementById('team-modal').classList.add('show');
+}
+
+function closeTeamModal() {
+  document.getElementById('team-modal').classList.remove('show');
+}
+
+function generateTeamPin() {
+  document.getElementById('tm-pin-suffix').value = Math.floor(1000 + Math.random() * 9000).toString();
+}
+
+async function saveTeam() {
+  const editId  = document.getElementById('team-modal-edit-id').value;
+  const name    = document.getElementById('tm-name').value.trim();
+  const suffix  = document.getElementById('tm-pin-suffix').value.trim();
+
+  if (!name)                         { showToast('Please enter a team name.', true); return; }
+  if (suffix.length !== 4 || isNaN(suffix)) { showToast('PIN must be exactly 4 digits.', true); return; }
+
+  const pin = 'TEAM' + suffix;
+  const members = Array.from(document.querySelectorAll('#tm-member-checkboxes input:checked')).map(c => c.value);
+
+  const teams = await loadTeams();
+
+  // Check for duplicate PIN (excluding self when editing)
+  const duplicate = Object.entries(teams).find(([id, t]) => t.pin === pin && id !== editId && !t._deleted);
+  if (duplicate) { showToast('That PIN is already used by another team.', true); return; }
+
+  showSyncOverlay(true);
+  const teamId = editId || 'team_' + Date.now();
+  teams[teamId] = { name, pin, members };
+  await saveTeams(teams);
+  closeTeamModal();
+  await buildTeamsSection();
+  showSyncOverlay(false);
+  showToast(editId ? '✓ Team updated!' : `✓ Team "${name}" created!`, false, true);
+}
+
+// ── Delete team ────────────────────────────────────────────────────────────
+function openDeleteTeamModal(id) {
+  // Load name async then show
+  loadTeams().then(teams => {
+    const team = teams[id];
+    document.getElementById('delete-team-id').value = id;
+    document.getElementById('delete-team-msg').textContent =
+      `Are you sure you want to delete the team "${team?.name || id}"? This cannot be undone.`;
+    document.getElementById('delete-team-modal').classList.add('show');
+  });
+}
+function closeDeleteTeamModal() {
+  document.getElementById('delete-team-modal').classList.remove('show');
+}
+async function confirmDeleteTeam() {
+  const id = document.getElementById('delete-team-id').value;
+  showSyncOverlay(true);
+  const teams = await loadTeams();
+  delete teams[id];
+  await saveTeams(teams);
+  closeDeleteTeamModal();
+  await buildTeamsSection();
+  showSyncOverlay(false);
+  showToast('Team deleted.', false, false);
+}
+
+// Expose to global scope
+window.openTeamModal        = openTeamModal;
+window.closeTeamModal       = closeTeamModal;
+window.generateTeamPin      = generateTeamPin;
+window.saveTeam             = saveTeam;
+window.openDeleteTeamModal  = openDeleteTeamModal;
+window.closeDeleteTeamModal = closeDeleteTeamModal;
+window.confirmDeleteTeam    = confirmDeleteTeam;
 
 function _safeInit() {
   if (document.readyState === 'loading') {
@@ -3785,6 +4013,51 @@ _safeInit();
       Send WhatsApp Alert
     </button>
     <button class="alert-dismiss-btn" onclick="dismissAlert()">Dismiss</button>
+  </div>
+</div>
+
+
+<!-- ADD / EDIT TEAM MODAL -->
+<div class="modal-overlay" id="team-modal">
+  <div class="modal-card" style="max-width:540px;width:calc(100vw - 32px)">
+    <div class="modal-title" id="team-modal-title">Create New Team</div>
+    <div class="modal-subtitle">Give the team a name, set a shared PIN, and assign members.</div>
+    <input type="hidden" id="team-modal-edit-id">
+
+    <div class="modal-field">
+      <label>Team Name</label>
+      <input type="text" id="tm-name" placeholder="e.g. Morning Crew, Closing Squad">
+    </div>
+    <div class="modal-field">
+      <label>Team PIN <span style="font-size:11px;color:var(--muted)">(prefix: TEAM — 4 digits)</span></label>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span style="font-family:monospace;font-weight:700;font-size:15px;color:var(--muted);white-space:nowrap">TEAM</span>
+        <input type="text" id="tm-pin-suffix" placeholder="4 digits e.g. 5500" maxlength="4" style="flex:1" oninput="this.value=this.value.replace(/[^0-9]/g,'')">
+        <button onclick="generateTeamPin()" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:9px 14px;cursor:pointer;font-family:'Mulish',sans-serif;font-size:12px;font-weight:600;white-space:nowrap">🎲 Random</button>
+      </div>
+    </div>
+    <div class="modal-field">
+      <label>Assign Members <span style="font-size:11px;color:var(--muted)">(optional — can add later)</span></label>
+      <div id="tm-member-checkboxes" style="display:flex;flex-direction:column;gap:8px;max-height:220px;overflow-y:auto;padding:4px 0"></div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="modal-cancel-btn" onclick="closeTeamModal()">Cancel</button>
+      <button class="modal-confirm-btn" id="team-modal-save-btn" onclick="saveTeam()">Create Team</button>
+    </div>
+  </div>
+</div>
+
+<!-- CONFIRM DELETE TEAM MODAL -->
+<div class="modal-overlay" id="delete-team-modal">
+  <div class="modal-card" style="max-width:400px">
+    <div class="modal-title" style="color:var(--danger)">Delete Team</div>
+    <div class="modal-subtitle" id="delete-team-msg">Are you sure you want to delete this team?</div>
+    <input type="hidden" id="delete-team-id">
+    <div class="modal-actions">
+      <button class="modal-cancel-btn" onclick="closeDeleteTeamModal()">Cancel</button>
+      <button class="modal-confirm-btn" style="background:var(--danger)" onclick="confirmDeleteTeam()">Delete Team</button>
+    </div>
   </div>
 </div>
 
