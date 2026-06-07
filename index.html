@@ -4,9 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Shift Operations Portal — Firebase</title>
-<!-- Firebase v9 compat SDK — used when Firebase backend is selected -->
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<!-- Firebase SDK removed — using Supabase backend -->
 <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Mulish:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -808,9 +806,13 @@ body{background:var(--bg);color:var(--text);font-family:'Mulish',sans-serif;min-
 
 <script>
 // ════════════════════════════════
-// BACKEND ENGINE — Supabase / Google Sheets / Firebase
+// BACKEND ENGINE — Supabase (primary) / Google Sheets / Firebase
 // ════════════════════════════════
 const BACKEND_CONFIG_KEY = 'shift_backend_config_v1';
+
+// ── Supabase credentials (embedded) ───────────────────────────────────────
+const SUPABASE_URL  = 'https://rgpwopoluwbfgqwqvrac.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJncHdvcG9sdXdiZmdxd3F2cmFjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA4MzEyODEsImV4cCI6MjA5NjQwNzI4MX0.GK4rJZpVwYcekrsgQMGvwBjP2Sz7O_uUrLA9qrYt6Fo';
 
 // Firebase pre-config (always embedded — no user input needed)
 const FIREBASE_CONFIG = {
@@ -904,16 +906,22 @@ async function _cloudSetWithConfig(key, data, cfg) {
 
 // ── Supabase helpers ───────────────────────────────────────────────────────
 async function _sbGet(key, url, anonKey) {
-  const headers = { 'apikey': anonKey, 'Authorization': 'Bearer ' + anonKey };
-  const res = await fetch(`${url}/rest/v1/shift_portal?key=eq.${encodeURIComponent(key)}&select=value`, { headers });
-  if (!res.ok) throw new Error('Supabase ' + res.status);
+  // Use embedded credentials if not passed
+  const _url = url || SUPABASE_URL;
+  const _key = anonKey || SUPABASE_ANON_KEY;
+  const headers = { 'apikey': _key, 'Authorization': 'Bearer ' + _key };
+  const res = await fetch(`${_url}/rest/v1/shift_portal?key=eq.${encodeURIComponent(key)}&select=value`, { headers });
+  if (!res.ok) throw new Error('Supabase ' + res.status + ': ' + await res.text());
   const rows = await res.json();
   return rows.length ? rows[0].value : null;
 }
 async function _sbSet(key, data, url, anonKey) {
-  const headers = { 'Content-Type':'application/json', 'apikey':anonKey, 'Authorization':'Bearer '+anonKey, 'Prefer':'resolution=merge-duplicates' };
-  const res = await fetch(`${url}/rest/v1/shift_portal`, { method:'POST', headers, body: JSON.stringify({ key, value: data }) });
-  if (!res.ok) throw new Error('Supabase ' + res.status);
+  // Use embedded credentials if not passed
+  const _url = url || SUPABASE_URL;
+  const _key = anonKey || SUPABASE_ANON_KEY;
+  const headers = { 'Content-Type':'application/json', 'apikey':_key, 'Authorization':'Bearer '+_key, 'Prefer':'resolution=merge-duplicates' };
+  const res = await fetch(`${_url}/rest/v1/shift_portal`, { method:'POST', headers, body: JSON.stringify({ key, value: data }) });
+  if (!res.ok) throw new Error('Supabase ' + res.status + ': ' + await res.text());
 }
 
 // ── Google Sheets helpers ──────────────────────────────────────────────────
@@ -3806,14 +3814,12 @@ function _updateShiftIndicator() {
 // 'load' event. Instead check readyState, and wrap everything in try/catch
 // so a slow/failing Firebase call never prevents the login screen showing.
 async function _bootApp() {
-  // Firebase is the default backend — auto-initialise without user configuration
-  const FIREBASE_DEFAULT_CFG = { type: 'firebase' };
+  // Supabase is the default backend
+  const SUPABASE_DEFAULT_CFG = { type: 'supabase', url: 'https://rgpwopoluwbfgqwqvrac.supabase.co', key: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJncHdvcG9sdXdiZmdxd3F2cmFjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA4MzEyODEsImV4cCI6MjA5NjQwNzI4MX0.GK4rJZpVwYcekrsgQMGvwBjP2Sz7O_uUrLA9qrYt6Fo' };
   let cfg = getBackendConfig();
-  if (!cfg) {
-    // No prior config stored — set Firebase as default
-    cfg = FIREBASE_DEFAULT_CFG;
-    setBackendConfig(cfg);
-  }
+  // Always override to Supabase — ensures all devices use it even if they had Firebase stored
+  cfg = SUPABASE_DEFAULT_CFG;
+  setBackendConfig(cfg);
   _initBackend(cfg);
 
   // Show login immediately using built-in users so the screen is never blank
