@@ -945,22 +945,34 @@ async function _cloudSetWithConfig(key, data, cfg) {
 }
 
 // ── Supabase helpers ───────────────────────────────────────────────────────
+// Wraps fetch with a timeout so a slow/hanging Supabase never blocks the UI
+async function _fetchWithTimeout(url, options, ms = 5000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    const res = await fetch(url, { ...options, signal: controller.signal });
+    clearTimeout(timer);
+    return res;
+  } catch(e) {
+    clearTimeout(timer);
+    throw e;
+  }
+}
+
 async function _sbGet(key, url, anonKey) {
-  // Use embedded credentials if not passed
   const _url = url || SUPABASE_URL;
   const _key = anonKey || SUPABASE_ANON_KEY;
   const headers = { 'apikey': _key, 'Authorization': 'Bearer ' + _key };
-  const res = await fetch(`${_url}/rest/v1/shift_portal?key=eq.${encodeURIComponent(key)}&select=value`, { headers });
+  const res = await _fetchWithTimeout(`${_url}/rest/v1/shift_portal?key=eq.${encodeURIComponent(key)}&select=value`, { headers });
   if (!res.ok) throw new Error('Supabase ' + res.status + ': ' + await res.text());
   const rows = await res.json();
   return rows.length ? rows[0].value : null;
 }
 async function _sbSet(key, data, url, anonKey) {
-  // Use embedded credentials if not passed
   const _url = url || SUPABASE_URL;
   const _key = anonKey || SUPABASE_ANON_KEY;
   const headers = { 'Content-Type':'application/json', 'apikey':_key, 'Authorization':'Bearer '+_key, 'Prefer':'resolution=merge-duplicates' };
-  const res = await fetch(`${_url}/rest/v1/shift_portal`, { method:'POST', headers, body: JSON.stringify({ key, value: data }) });
+  const res = await _fetchWithTimeout(`${_url}/rest/v1/shift_portal`, { method:'POST', headers, body: JSON.stringify({ key, value: data }) });
   if (!res.ok) throw new Error('Supabase ' + res.status + ': ' + await res.text());
 }
 
@@ -1013,15 +1025,22 @@ function _initBackend(cfg) {
 
 // ── Public cloudGet / cloudSet — routes to active backend ─────────────────
 async function cloudGet(key) {
-  try {
-    if (_activeConfig) {
+  // Always serve from localStorage first for instant response
+  let local = null;
+  try { const v = localStorage.getItem(key); if (v) local = JSON.parse(v); } catch(_) {}
+
+  // If we have a backend, fetch from cloud and update cache — but don't block on it
+  if (_activeConfig) {
+    try {
       const val = await _cloudGetWithConfig(key, _activeConfig);
-      if (val !== null) { try { localStorage.setItem(key, JSON.stringify(val)); } catch(_){} }
-      return val;
-    }
-  } catch(e) { console.warn('cloudGet backend failed, using localStorage:', e); }
-  // Fallback: localStorage
-  try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : null; } catch(_) { return null; }
+      if (val !== null) {
+        try { localStorage.setItem(key, JSON.stringify(val)); } catch(_) {}
+        return val;
+      }
+    } catch(e) { console.warn('cloudGet backend failed, using localStorage:', e); }
+  }
+
+  return local;
 }
 
 async function cloudSet(key, data) {
@@ -1163,12 +1182,16 @@ async function cloudSet(key, data) {
   try { localStorage.setItem(key, JSON.stringify(data)); } catch(_) {}
 }
 
+// In-memory cache so loadMasterChecklists never hits Supabase more than once per session
+let _masterChecklistsCache = null;
 async function loadMasterChecklists() {
+  if (_masterChecklistsCache) return _masterChecklistsCache;
   const saved = await cloudGet(STORAGE_KEYS.masterChecklists);
-  if (saved) return saved;
-  return JSON.parse(JSON.stringify(DEFAULT_CHECKLISTS));
+  _masterChecklistsCache = saved || JSON.parse(JSON.stringify(DEFAULT_CHECKLISTS));
+  return _masterChecklistsCache;
 }
 async function saveMasterChecklists(cl) {
+  _masterChecklistsCache = cl; // update cache on save
   await cloudSet(STORAGE_KEYS.masterChecklists, cl);
 }
 async function loadChecklist(date, section) {
@@ -1195,6 +1218,20 @@ async function getTasksFlat(section) {
 async function countTasks(section) {
   return (await getTasksFlat(section)).length;
 }
+// Sync version — pass in already-loaded cl to avoid an extra await
+function getUserSectionsSync(cl, user) {
+  if (user.role === 'manager') return Object.keys(cl);
+  const accessible = [];
+  Object.entries(cl).forEach(([key, def]) => {
+    if (def.supervisors === null) {
+      if (user.access.includes(key)) accessible.push(key);
+    } else {
+      if (def.supervisors.includes(user.id)) accessible.push(key);
+    }
+  });
+  return accessible;
+}
+
 async function getUserSections(user) {
   const cl = await loadMasterChecklists();
   if (user.role === 'manager') return Object.keys(cl);
@@ -1381,8 +1418,9 @@ async function doLogin() {
   const pin = document.getElementById('login-pin').value.replace(/-/g,'').toUpperCase();
   const err = document.getElementById('login-err');
   if (!uid) { err.textContent='Please select your name.'; err.classList.add('show'); return; }
-  const allUsers = await getAllUsers();
-  const u = allUsers[uid];
+
+  // Validate against built-in USERS instantly — no Supabase call needed for PIN check
+  const u = USERS[uid];
   if (!u || u._deleted) {
     err.textContent='This account has been removed. Please contact your manager.'; err.classList.add('show');
     document.getElementById('login-pin').value=''; return;
@@ -1394,16 +1432,36 @@ async function doLogin() {
   err.classList.remove('show');
   currentUser = {id:uid, ...u};
 
-  // Show loading overlay while fetching cloud data
-  showSyncOverlay(true);
-  if (u.role === 'manager' || u.role === 'overview_manager') await enterManager();
-  else await enterSupervisor();
+  // Show screen immediately using whatever is cached in localStorage —
+  // no waiting for Supabase. Then refresh from cloud in the background.
   showSyncOverlay(false);
+  if (u.role === 'manager' || u.role === 'overview_manager') {
+    await enterManager();
+  } else {
+    await enterSupervisor();
+  }
+
+  // Background cloud sync — silently refreshes data after the screen is shown
+  if (_activeConfig) {
+    setTimeout(async () => {
+      try {
+        _masterChecklistsCache = null; // force re-fetch from cloud
+        _loadedSchedule = null;
+        _loadedOffDays  = null;
+        if (currentUser && (currentUser.role === 'manager' || currentUser.role === 'overview_manager')) {
+          await loadManagerView();
+        } else if (currentUser) {
+          await enterSupervisor();
+        }
+      } catch(e) { console.warn('Background sync failed:', e); }
+    }, 100);
+  }
 }
 function logout() {
   if (window._shiftIndicatorTimer) { clearInterval(window._shiftIndicatorTimer); window._shiftIndicatorTimer = null; }
   stopAlertChecker();
-  _loadedSchedule = null; // clear schedule cache on logout
+  _loadedSchedule = null;
+  _masterChecklistsCache = null; // clear so next login always gets fresh checklists
   currentUser = null;
   document.getElementById('login-user').value='';
   document.getElementById('login-pin').value='';
@@ -1516,7 +1574,16 @@ async function enterSupervisor() {
   if (window._shiftIndicatorTimer) clearInterval(window._shiftIndicatorTimer);
   window._shiftIndicatorTimer = setInterval(_updateShiftIndicator, 60000);
 
-  const cl = await loadMasterChecklists();
+  // ── Show the screen immediately — don't wait for cloud ───────────────
+  showScreen('supervisor');
+
+  // ── Fetch all independent cloud data in parallel ──────────────────────
+  const [cl, schedule, offDaysData] = await Promise.all([
+    loadMasterChecklists(),
+    getShiftSchedule(),
+    getOffDays(),
+  ]);
+
   // inject custom CSS for any custom tabs
   Object.entries(cl).forEach(([key, def]) => {
     if (!def.builtIn) {
@@ -1525,16 +1592,14 @@ async function enterSupervisor() {
     }
   });
 
-  const sections = await getUserSections({...u, id:u.id});
-  const schedule  = await getShiftSchedule();
+  const sections = getUserSectionsSync(cl, {...u, id:u.id});
   const userSched = schedule[u.id] || {};
 
   // ── Off-day check ──────────────────────────────────────────────────────
-  const offToday = await isOffToday(u.id);
+  const today2 = getTodayStr();
+  const offToday = !!(offDaysData[u.id] && offDaysData[u.id][today2]);
   if (offToday) {
-    const offDays = await getOffDays();
-    const today   = getTodayStr();
-    const coverUid = offDays[u.id]?.[today]?.cover;
+    const coverUid = offDaysData[u.id]?.[today2]?.cover;
     const coverName = coverUid && USERS[coverUid] ? USERS[coverUid].name : null;
     document.getElementById('sup-tabs').innerHTML = '';
     document.getElementById('sup-checklist-card').innerHTML = `
@@ -1680,12 +1745,16 @@ async function enterSupervisor() {
 
   activeClTab = tabKeys[0];
 
-  // Init sig pads and load saved cloud state
-  for (const vt of virtualTabs) {
+  // ── Load all tab checklists in parallel, then process ─────────────────
+  const savedChecklists = await Promise.all(
+    virtualTabs.map(vt => loadChecklist(getTodayStr(), vt.tabKey))
+  );
+
+  for (let i = 0; i < virtualTabs.length; i++) {
+  const vt    = virtualTabs[i];
   const key    = vt.tabKey;
   const secKey = vt.sectionKey;
-    initSigPad(`sigpad-${key}-sup`, key, 'sup');
-    const saved = await loadChecklist(getTodayStr(), key);
+  const saved  = savedChecklists[i];
     // For split tabs, section-level data is stored under tabKey (not sectionKey)
 
     // For closing checklist: only restore tick state for THIS user's categories.
@@ -1694,7 +1763,7 @@ async function enterSupervisor() {
     if (secKey === 'closing' && currentUser.role !== 'manager') {
       const allowedCats = getUserClosingSections(currentUser);
       if (allowedCats && saved?.tasks) {
-        const cl = await loadMasterChecklists();
+        // cl already loaded above — no extra fetch needed
         const filteredTasks = {};
         let gIdx = 0;
         (cl[key]?.groups || []).forEach(group => {
@@ -1756,7 +1825,7 @@ async function enterSupervisor() {
       if (clearBtn) clearBtn.style.display = '';
     }
   }
-  showScreen('supervisor');
+  // screen already shown above — checklists now populated in place
 }
 
 function switchSupTab(key) {
