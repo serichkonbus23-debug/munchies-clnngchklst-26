@@ -57,6 +57,9 @@ body{background:var(--bg);color:var(--text);font-family:'Mulish',sans-serif;min-
 .shift-indicator.outside{background:#f5f3ef;border-color:#ccc;color:#888}
 .shift-indicator.outside .shift-dot{background:#ccc;animation:none}
 
+.ctab-locked{opacity:.5;cursor:not-allowed!important}
+.ctab-lock-icon{margin-left:4px;font-size:11px}
+
 /* BACKEND SELECTOR */
 #screen-backend{align-items:center;justify-content:center;background:linear-gradient(135deg,#1c3a28 0%,#2d5a3d 50%,#1a2e1f 100%);position:relative;overflow:hidden}
 #screen-backend::before{content:'';position:absolute;width:600px;height:600px;border-radius:50%;background:rgba(200,168,75,0.08);top:-200px;right:-200px}
@@ -753,9 +756,41 @@ body{background:var(--bg);color:var(--text);font-family:'Mulish',sans-serif;min-
         <div id="schedule-table-container">
           <div style="color:var(--muted);font-size:13px">Loading schedule…</div>
         </div>
-        <div style="margin-top:20px;display:flex;gap:10px">
+        <div style="margin-top:20px;display:flex;gap:10px;flex-wrap:wrap">
           <button class="submit-btn" style="padding:9px 22px;font-size:13px" onclick="saveShiftSchedule()">💾 Save Schedule</button>
           <button class="submit-btn" style="padding:9px 22px;font-size:13px;background:#555" onclick="resetShiftSchedule()">↩ Reset to Defaults</button>
+        </div>
+
+        <!-- OFF DAYS SECTION -->
+        <div style="margin-top:32px">
+          <div class="editor-title" style="margin-bottom:4px">
+            🌴 Off Days & Cover
+          </div>
+          <div class="editor-subtitle" style="margin-bottom:16px">
+            Mark which supervisors are off each day and assign a cover supervisor. Updates take effect immediately.
+          </div>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:16px">
+            <div>
+              <label style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;display:block;margin-bottom:5px">Date</label>
+              <input type="date" id="offday-date-picker" style="padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:'Mulish',sans-serif;font-size:13px">
+            </div>
+            <div>
+              <label style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;display:block;margin-bottom:5px">Supervisor Off</label>
+              <select id="offday-sup-select" style="padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:'Mulish',sans-serif;font-size:13px;min-width:180px">
+                <option value="">— Select supervisor —</option>
+              </select>
+            </div>
+            <div>
+              <label style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;display:block;margin-bottom:5px">Cover Supervisor (optional)</label>
+              <select id="offday-cover-select" style="padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:'Mulish',sans-serif;font-size:13px;min-width:180px">
+                <option value="">— No cover assigned —</option>
+              </select>
+            </div>
+            <div style="padding-top:22px">
+              <button class="submit-btn" style="padding:9px 18px;font-size:13px" onclick="addOffDay()">+ Mark Off Day</button>
+            </div>
+          </div>
+          <div id="offdays-list" style="max-height:280px;overflow-y:auto"></div>
         </div>
       </div>
     </div>
@@ -1214,7 +1249,8 @@ const SECTION_SHIFT = {
 // shifts: which shift windows the supervisor works
 // checklists: which sections they must submit, mapped to which shift window's time rules apply
 // ════════════════════════════════
-const SHIFT_SCHEDULE_KEY = 'shift_supervisor_schedule_v1';
+const SHIFT_SCHEDULE_KEY  = 'shift_supervisor_schedule_v1';
+const OFF_DAYS_KEY        = 'shift_off_days_v1';   // { uid: { 'YYYY-MM-DD': { cover: uid|null } } }
 
 const DEFAULT_SHIFT_SCHEDULE = {
   // portia: morning + afternoon shifts → FOH cashier morning window, closing (front area) as part of afternoon
@@ -1235,6 +1271,30 @@ const DEFAULT_SHIFT_SCHEDULE = {
 
 // In-memory cache of loaded schedule (merged default + any manager overrides)
 let _loadedSchedule = null;
+let _loadedOffDays  = null;
+
+async function getOffDays() {
+  if (_loadedOffDays) return _loadedOffDays;
+  _loadedOffDays = await cloudGet(OFF_DAYS_KEY) || {};
+  return _loadedOffDays;
+}
+
+async function isOffToday(uid) {
+  const today = getTodayStr();
+  const offDays = await getOffDays();
+  return !!(offDays[uid] && offDays[uid][today]);
+}
+
+async function getCoverForDay(uid, date) {
+  const offDays = await getOffDays();
+  if (!offDays[uid] || !offDays[uid][date]) return null;
+  return offDays[uid][date].cover || null;
+}
+
+async function saveOffDays(offDays) {
+  _loadedOffDays = offDays;
+  await cloudSet(OFF_DAYS_KEY, offDays);
+}
 
 async function getShiftSchedule() {
   if (_loadedSchedule) return _loadedSchedule;
@@ -1263,8 +1323,8 @@ async function getUserSectionShiftWindow(userId, section) {
 }
 function timeToMins(t) { const [h,m]=t.split(':').map(Number); return h*60+m; }
 function getCurrentTimeMins() { const n=new Date(); return n.getHours()*60+n.getMinutes(); }
-function checkShiftWindow(section) {
-  const shiftKey = SECTION_SHIFT[section] || 'morning';
+function checkShiftWindow(section, windowOverride) {
+  const shiftKey = windowOverride || SECTION_SHIFT[section] || 'morning';
   const win = SHIFT_WINDOWS[shiftKey];
   const nowMins = getCurrentTimeMins();
   function inWindow(start, end) {
@@ -1461,41 +1521,120 @@ async function enterSupervisor() {
   });
 
   const sections = await getUserSections({...u, id:u.id});
+  const schedule  = await getShiftSchedule();
+  const userSched = schedule[u.id] || {};
+
+  // ── Off-day check ──────────────────────────────────────────────────────
+  const offToday = await isOffToday(u.id);
+  if (offToday) {
+    const offDays = await getOffDays();
+    const today   = getTodayStr();
+    const coverUid = offDays[u.id]?.[today]?.cover;
+    const coverName = coverUid && USERS[coverUid] ? USERS[coverUid].name : null;
+    document.getElementById('sup-tabs').innerHTML = '';
+    document.getElementById('sup-checklist-card').innerHTML = `
+      <div style="background:var(--surface);border:2px solid var(--accent2);border-radius:14px;padding:32px 28px;text-align:center;max-width:480px;margin:40px auto">
+        <div style="font-size:36px;margin-bottom:12px">🌴</div>
+        <div style="font-family:'Playfair Display',serif;font-size:20px;font-weight:700;color:var(--dark);margin-bottom:10px">
+          You are marked off today
+        </div>
+        <div style="font-size:13px;color:var(--muted);line-height:1.6;margin-bottom:${coverName ? '16px' : '0'}">
+          ${today} has been recorded as your day off. No checklists are required from you today.
+        </div>
+        ${coverName ? `<div style="background:var(--accent-lt);border:1px solid var(--accent);border-radius:8px;padding:10px 16px;font-size:13px;color:var(--accent);font-weight:600">
+          Covering today: ${coverName}
+        </div>` : ''}
+      </div>`;
+    showScreen('supervisor');
+    return;
+  }
+
+  // ── Build tab list with morning/afternoon split ────────────────────────
+  // For each section, check if the supervisor has it in multiple shift windows
+  // If a section appears once → single tab; if mapped to a specific shift → label it
+  // If supervisor works morning+afternoon and has the same section key in both → split
+  const userShifts = userSched.shifts || [];
+  const userChecklists = userSched.checklists || {};
+  const hasMorning   = userShifts.includes('morning');
+  const hasAfternoon = userShifts.includes('afternoon');
+  const hasClosing   = userShifts.includes('closing');
+
+  // Build virtual tab list: { tabKey, sectionKey, shiftLabel, shiftWindow }
+  // tabKey = storage key (section__window for split tabs, section for single)
+  const virtualTabs = [];
+  sections.forEach(sectionKey => {
+    const assignedWindow = userChecklists[sectionKey];
+    if (sectionKey === 'closing') {
+      // Closing is always a single tab
+      virtualTabs.push({ tabKey: sectionKey, sectionKey, shiftLabel: 'Closing', shiftWindow: 'closing', isSplit: false });
+    } else if (hasMorning && hasAfternoon && assignedWindow === 'morning') {
+      // Dual-shift morning+afternoon: create TWO tabs for this section
+      virtualTabs.push({ tabKey: sectionKey + '__morning',   sectionKey, shiftLabel: 'Morning',   shiftWindow: 'morning',   isSplit: true });
+      virtualTabs.push({ tabKey: sectionKey + '__afternoon', sectionKey, shiftLabel: 'Afternoon', shiftWindow: 'afternoon', isSplit: true });
+    } else if (hasAfternoon && hasClosing && assignedWindow === 'afternoon') {
+      // Dual-shift afternoon+closing: create TWO tabs for this section
+      virtualTabs.push({ tabKey: sectionKey + '__afternoon', sectionKey, shiftLabel: 'Afternoon', shiftWindow: 'afternoon', isSplit: true });
+      virtualTabs.push({ tabKey: sectionKey + '__closing',   sectionKey, shiftLabel: 'Closing',   shiftWindow: 'closing',   isSplit: true });
+    } else {
+      // Single shift: single tab
+      const wLabel = assignedWindow ? (assignedWindow.charAt(0).toUpperCase() + assignedWindow.slice(1)) : '';
+      virtualTabs.push({ tabKey: sectionKey, sectionKey, shiftLabel: wLabel, shiftWindow: assignedWindow || 'morning', isSplit: false });
+    }
+  });
+
+  // Store virtualTabs on window so switchSupTab and submit can use it
+  window._supVirtualTabs = virtualTabs;
 
   // Build tabs
   const tabsContainer = document.getElementById('sup-tabs');
   tabsContainer.innerHTML = '';
-  sections.forEach((key, i) => {
-    const def = cl[key];
-    const cv = getColorVars(def.color);
-    const total = getTasksFlatSync(cl, key).length;
+  virtualTabs.forEach((vt, i) => {
+    const def = cl[vt.sectionKey];
+    const cv  = getColorVars(def.color);
+    const total = getTasksFlatSync(cl, vt.sectionKey).length;
     const btn = document.createElement('button');
-    btn.className = 'ctab'+(i===0?' active':'');
-    btn.dataset.tab = key;
+    btn.className = 'ctab' + (i === 0 ? ' active' : '');
+    btn.dataset.tab = vt.tabKey;
+    // Lock afternoon/closing split tabs initially
+    const isLocked = vt.isSplit && (vt.shiftWindow === 'afternoon' || vt.shiftWindow === 'closing');
+    if (isLocked) btn.classList.add('ctab-locked');
     const dotStyle = cv.dot ? `class="ctab-dot ${cv.dot}"` : `class="ctab-dot" style="background:${cv.main}"`;
-    btn.innerHTML = `<span ${dotStyle}></span>${def.label}<span class="ctab-count" id="ctab-count-${key}">0/${total}</span>`;
-    btn.onclick = () => switchSupTab(key);
+    const shiftBadge = vt.isSplit ? `<span style="font-size:10px;opacity:.7;margin-left:4px">(${vt.shiftLabel})</span>` : '';
+    const lockIcon   = isLocked ? `<span class="ctab-lock-icon">🔒</span>` : '';
+    btn.innerHTML = `<span ${dotStyle}></span>${def.label}${shiftBadge}${lockIcon}<span class="ctab-count" id="ctab-count-${vt.tabKey}">0/${total}</span>`;
+    btn.onclick = () => {
+      if (btn.classList.contains('ctab-locked')) {
+        showToast('Submit the morning checklist first to unlock this tab.', true);
+        return;
+      }
+      switchSupTab(vt.tabKey);
+    };
     tabsContainer.appendChild(btn);
   });
 
-  // Build panels
+  // Build panels using virtualTabs
   const card = document.getElementById('sup-checklist-card');
   card.innerHTML = '';
-  sections.forEach((key, i) => {
-    const def = cl[key];
-    const cv = getColorVars(def.color);
-    const panel = document.createElement('div');
-    panel.className = 'cl-panel'+(i===0?' active':'');
-    panel.id = 'cl-'+key;
-    const total = getTasksFlatSync(cl, key).length;
-    const fillCls = cv.fill || '';
-    const badgeCls = cv.badge || '';
+  const tabKeys = virtualTabs.map(vt => vt.tabKey);
+  virtualTabs.forEach((vt, i) => {
+    const key    = vt.tabKey;      // storage key (may include __morning/__afternoon suffix)
+    const secKey = vt.sectionKey;  // actual checklist section key
+    const def    = cl[secKey];
+    const cv     = getColorVars(def.color);
+    const panel  = document.createElement('div');
+    panel.className  = 'cl-panel' + (i === 0 ? ' active' : '');
+    panel.id         = 'cl-' + key;
+    const total      = getTasksFlatSync(cl, secKey).length;
+    const fillCls    = cv.fill || '';
+    const badgeCls   = cv.badge || '';
     const badgeStyle = badgeCls ? '' : `style="background:${cv.hexLt};color:${cv.main}"`;
-    const fillStyle = fillCls ? '' : `style="background:${cv.main}"`;
+    const fillStyle  = fillCls ? '' : `style="background:${cv.main}"`;
+    const shiftSubtitle = vt.shiftLabel ? `${vt.shiftLabel} Shift · Pre-Service` : 'Morning Shift · Pre-Service';
+    const tabTitle      = vt.isSplit ? `${def.label} — ${vt.shiftLabel}` : def.label;
     panel.innerHTML = `
       <div class="cl-header">
-        <div><div class="cl-title">Opening Checklist — ${def.label}</div><div class="cl-subtitle">Morning Shift · Pre-Service</div></div>
-        <span class="cl-badge ${badgeCls}" ${badgeStyle}>${def.label}</span>
+        <div><div class="cl-title">${tabTitle} Checklist</div><div class="cl-subtitle">${shiftSubtitle}</div></div>
+        <span class="cl-badge ${badgeCls}" ${badgeStyle}>${vt.shiftLabel || def.label}</span>
       </div>
       <div class="cl-progress">
         <div class="cl-prog-track"><div class="cl-prog-fill ${fillCls}" id="prog-${key}" ${fillStyle}></div></div>
@@ -1526,25 +1665,28 @@ async function enterSupervisor() {
         </div>
         <div class="submit-row">
           <span class="warn-txt" id="${key}-warn">⚠ Complete all tasks before submitting</span>
-          <div class="submitted-badge" id="${key}-submitted">✓ ${def.label} Checklist Submitted</div>
-          <button class="submit-btn" id="${key}-submit-btn" onclick="submitChecklist('${key}')">Submit ${def.label} Checklist</button>
+          <div class="submitted-badge" id="${key}-submitted">✓ ${tabTitle} Submitted</div>
+          <button class="submit-btn" id="${key}-submit-btn" onclick="submitChecklist('${key}')">Submit ${tabTitle} Checklist</button>
         </div>
       </div>`;
     card.appendChild(panel);
     supState[key] = {};
   });
 
-  activeClTab = sections[0];
+  activeClTab = tabKeys[0];
 
   // Init sig pads and load saved cloud state
-  for (const key of sections) {
+  for (const vt of virtualTabs) {
+  const key    = vt.tabKey;
+  const secKey = vt.sectionKey;
     initSigPad(`sigpad-${key}-sup`, key, 'sup');
     const saved = await loadChecklist(getTodayStr(), key);
+    // For split tabs, section-level data is stored under tabKey (not sectionKey)
 
     // For closing checklist: only restore tick state for THIS user's categories.
     // The shared document contains all supervisors' ticks combined — loading it
     // wholesale causes other supervisors' ticked tasks to appear pre-checked.
-    if (key === 'closing' && currentUser.role !== 'manager') {
+    if (secKey === 'closing' && currentUser.role !== 'manager') {
       const allowedCats = getUserClosingSections(currentUser);
       if (allowedCats && saved?.tasks) {
         const cl = await loadMasterChecklists();
@@ -1574,7 +1716,7 @@ async function enterSupervisor() {
       const el = document.getElementById(`remarks-${key}-sup`);
       if (el) el.value = saved.remarks;
     }
-    await renderChecklist(key, 'sup');
+    await renderChecklist(key, 'sup', secKey);
     checkSubmittedState(key, saved);
 
     // Determine if THIS user has personally submitted this section
@@ -1629,16 +1771,20 @@ function getTasksFlatSync(cl, section) {
   return tasks;
 }
 
-async function renderChecklist(section, mode) {
+async function renderChecklist(section, mode, sectionKeyOverride) {
+  // section = tabKey (storage key, may have __morning/__afternoon suffix)
+  // sectionKeyOverride = actual master checklist key (for cl[] lookups)
+  const clKey = sectionKeyOverride || section.replace(/__(morning|afternoon|closing)$/, '');
   const containerId = mode==='mgr' ? `mgr-tasks-${section}-list` : `tasks-${section}-list`;
   const container = document.getElementById(containerId);
   if (!container) return;
   container.innerHTML = '';
   const cl = await loadMasterChecklists();
-  if (!cl[section]) return;
+  if (!cl[clKey]) return;
   const st = mode==='mgr' ? (mgrState[section]||{}) : (supState[section]||{});
   const date = mode==='mgr' ? currentDate : getTodayStr();
   const savedData = await loadChecklist(date, section);
+  const def = cl[clKey];
   // For closing, only lock tasks if THIS user has submitted (not just anyone)
   let submitted = false;
   if (savedData) {
@@ -1726,11 +1872,11 @@ function updateInitials(section, mode, idx, val) {
 
 async function autoSave(section) {
   const today = getTodayStr();
-  const ex = (await loadChecklist(today, section)) || {};
+  const ex = (await loadChecklist(today, tabKey)) || {};
   ex.tasks = supState[section];
   ex.userId = currentUser.id;
   ex.userName = currentUser.name;
-  const remEl = document.getElementById(`remarks-${section}-sup`);
+  const remEl = document.getElementById(`remarks-${tabKey}-sup`);
   if (remEl) ex.remarks = remEl.value;
   await saveChecklist(today, section, ex);
 }
@@ -1784,7 +1930,7 @@ function checkSubmittedState(section, savedData) {
   const badge = document.getElementById(section+'-submitted');
   if (btn) btn.style.display = submitted ? 'none' : 'inline-flex';
   if (badge) badge.classList.toggle('show', submitted);
-  const remEl = document.getElementById(`remarks-${section}-sup`);
+  const remEl = document.getElementById(`remarks-${tabKey}-sup`);
   if (remEl && submitted) remEl.readOnly = true;
 }
 
@@ -1796,9 +1942,13 @@ function checkMgrSubmittedState(section, savedData) {
   if (badge) badge.classList.toggle('show', submitted);
 }
 
-async function submitChecklist(section) {
+async function submitChecklist(tabKey) {
+  // tabKey may be foh_cashier__morning — strip suffix for master checklist lookups
+  const section = tabKey.replace(/__(morning|afternoon|closing)$/, '');
+  const tabSuffix = tabKey.match(/__(morning|afternoon|closing)$/);
+  const tabWindow = tabSuffix ? tabSuffix[1] : null;
   // ── Shift schedule check — is this section part of this user's schedule? ──
-  const warnEl2 = document.getElementById(section+'-warn');
+  const warnEl2 = document.getElementById(tabKey+'-warn');
   const isManager = currentUser.role === 'manager' || currentUser.role === 'overview_manager';
   if (!isManager) {
     const userWindowKey = await getUserSectionShiftWindow(currentUser.id, section);
@@ -1833,7 +1983,7 @@ async function submitChecklist(section) {
            primaryLabel: `${win.primary.start}–${win.primary.end}`,
            catchupLabel: `${AFTERNOON_CATCHUP.start}–${AFTERNOON_CATCHUP.end}` };
   } else {
-    tw = checkShiftWindow(section);
+    tw = checkShiftWindow(section, tabWindow);
   }
 
   if (!tw.allowed) {
@@ -1844,7 +1994,7 @@ async function submitChecklist(section) {
     tw.late = true;
   }
   const cl = await loadMasterChecklists();
-  const warn = document.getElementById(section+'-warn');
+  const warn = document.getElementById(tabKey+'-warn');
 
   // For closing, only count tasks the user is responsible for
   let total, done;
@@ -1882,8 +2032,8 @@ async function submitChecklist(section) {
   }
   showSyncOverlay(true);
   const today = getTodayStr();
-  const ex = (await loadChecklist(today, section)) || {};
-  const remEl = document.getElementById(`remarks-${section}-sup`);
+  const ex = (await loadChecklist(today, tabKey)) || {};
+  const remEl = document.getElementById(`remarks-${tabKey}-sup`);
   // Merge: start from existing (all sups' data), then overlay only THIS user's real ticks.
   // Strip _otherSup placeholder entries so we never overwrite another supervisor's work.
   const myRealTasks = {};
@@ -1928,16 +2078,40 @@ async function submitChecklist(section) {
     signature: sigData,
     remarks: remEl?.value || ''
   });
-  await saveChecklist(today, section, ex);
-  await renderChecklist(section, 'sup');
+  await saveChecklist(today, tabKey, ex);
+  await renderChecklist(tabKey, 'sup', section);
   if (remEl) remEl.readOnly = true;
   // Lock signature pad for the submitting user
-  const canvas = document.getElementById(`sigpad-${section}-sup`);
+  const canvas = document.getElementById(`sigpad-${tabKey}-sup`);
   if (canvas) canvas.classList.add('readonly');
   const clearBtn = canvas?.closest('.sig-pad-wrap')?.querySelector('.sig-clear-btn');
   if (clearBtn) clearBtn.style.display = 'none';
   showSyncOverlay(false);
   showToast('✓ '+(cl[section]?.label||section)+' checklist submitted!');
+
+  // If a morning split tab was just submitted, unlock the corresponding afternoon tab
+  if (tabKey.endsWith('__morning')) {
+    const afternoonTabKey = tabKey.replace('__morning', '__afternoon');
+    const afternoonBtn = document.querySelector(`[data-tab="${afternoonTabKey}"]`);
+    if (afternoonBtn) {
+      afternoonBtn.classList.remove('ctab-locked');
+      const lockIcon = afternoonBtn.querySelector('.ctab-lock-icon');
+      if (lockIcon) lockIcon.remove();
+      afternoonBtn.onclick = () => switchSupTab(afternoonTabKey);
+      showToast('🔓 Afternoon tab is now unlocked!', false, true);
+    }
+  }
+  // If an afternoon split tab was submitted, unlock closing tab if exists
+  if (tabKey.endsWith('__afternoon')) {
+    const closingTabKey = tabKey.replace('__afternoon', '__closing');
+    const closingBtn = document.querySelector(`[data-tab="${closingTabKey}"]`);
+    if (closingBtn && closingBtn.classList.contains('ctab-locked')) {
+      closingBtn.classList.remove('ctab-locked');
+      const lockIcon = closingBtn.querySelector('.ctab-lock-icon');
+      if (lockIcon) lockIcon.remove();
+      closingBtn.onclick = () => switchSupTab(closingTabKey);
+    }
+  }
 }
 
 async function mgrSubmitChecklist(section) {
@@ -2530,6 +2704,7 @@ const SHIFT_OPTIONS  = ['morning','afternoon','closing'];
 const CHECKLIST_SECTIONS = { foh_cashier:'FOH Cashier', foh_server:'FOH Server', boh:'BOH', grill:'Grill', closing:'Closing' };
 
 async function buildScheduleTable() {
+  await initOffDayUI();
   const container = document.getElementById('schedule-table-container');
   if (!container) return;
 
@@ -3695,6 +3870,100 @@ function _showFirebaseBanner(status, errMsg) {
   if (overviewView) overviewView.insertBefore(banner, overviewView.firstChild);
 }
 
+// ════════════════════════════════
+// OFF DAYS MANAGEMENT
+// ════════════════════════════════
+async function initOffDayUI() {
+  // Set default date to today
+  const picker = document.getElementById('offday-date-picker');
+  if (picker) picker.value = getTodayStr();
+
+  // Populate supervisor dropdowns
+  const allUsers = await getAllUsers();
+  const supSel  = document.getElementById('offday-sup-select');
+  const covSel  = document.getElementById('offday-cover-select');
+  if (!supSel || !covSel) return;
+
+  supSel.innerHTML  = '<option value="">— Select supervisor —</option>';
+  covSel.innerHTML  = '<option value="">— No cover assigned —</option>';
+
+  Object.entries(allUsers).forEach(([id, u]) => {
+    if (u.role === 'supervisor' || u.role === 'asst') {
+      const opt1 = document.createElement('option');
+      opt1.value = id; opt1.textContent = u.name;
+      supSel.appendChild(opt1);
+      const opt2 = document.createElement('option');
+      opt2.value = id; opt2.textContent = u.name;
+      covSel.appendChild(opt2);
+    }
+  });
+
+  await renderOffDaysList();
+}
+
+async function renderOffDaysList() {
+  const container = document.getElementById('offdays-list');
+  if (!container) return;
+  const offDays = await getOffDays();
+  const allUsers = await getAllUsers();
+
+  // Flatten and sort by date descending
+  const entries = [];
+  Object.entries(offDays).forEach(([uid, days]) => {
+    Object.entries(days).forEach(([date, info]) => {
+      entries.push({ uid, date, cover: info.cover });
+    });
+  });
+  entries.sort((a, b) => b.date.localeCompare(a.date));
+
+  if (!entries.length) {
+    container.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:12px 0">No off days recorded yet.</div>';
+    return;
+  }
+
+  container.innerHTML = entries.map(e => {
+    const u = allUsers[e.uid];
+    const coverU = e.cover ? allUsers[e.cover] : null;
+    const isPast = e.date < getTodayStr();
+    return `<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;background:${isPast?'var(--surface2)':'var(--surface)'};border:1px solid var(--border);border-radius:8px;margin-bottom:6px;font-size:13px">
+      <span style="font-weight:700;color:var(--dark);min-width:100px">${formatDateNice(e.date).replace(/,\s*\d{4}/,'')}</span>
+      <span style="flex:1;color:var(--text)">${u?.name || e.uid} <span style="color:var(--muted)">is off</span></span>
+      ${coverU ? `<span style="color:var(--accent);font-weight:600">Cover: ${coverU.name}</span>` : '<span style="color:var(--muted)">No cover</span>'}
+      <button onclick="removeOffDay('${e.uid}','${e.date}')" style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:16px;padding:0 4px" title="Remove">×</button>
+    </div>`;
+  }).join('');
+}
+
+async function addOffDay() {
+  const date    = document.getElementById('offday-date-picker')?.value;
+  const uid     = document.getElementById('offday-sup-select')?.value;
+  const coverUid= document.getElementById('offday-cover-select')?.value || null;
+  if (!date) { showToast('Please select a date.', true); return; }
+  if (!uid)  { showToast('Please select a supervisor.', true); return; }
+
+  showSyncOverlay(true);
+  const offDays = await getOffDays();
+  if (!offDays[uid]) offDays[uid] = {};
+  offDays[uid][date] = { cover: coverUid || null };
+  await saveOffDays(offDays);
+  await renderOffDaysList();
+  showSyncOverlay(false);
+  showToast('✓ Off day saved!', false, true);
+}
+
+async function removeOffDay(uid, date) {
+  showSyncOverlay(true);
+  const offDays = await getOffDays();
+  if (offDays[uid]) {
+    delete offDays[uid][date];
+    if (!Object.keys(offDays[uid]).length) delete offDays[uid];
+  }
+  await saveOffDays(offDays);
+  await renderOffDaysList();
+  showSyncOverlay(false);
+  showToast('Off day removed.');
+}
+
 // TOAST
 let toastTimer;
 function showToast(msg,isError=false,isGold=false) {
@@ -3736,6 +4005,8 @@ window.saveTabSettings     = saveTabSettings;
 window.deleteCustomTab     = deleteCustomTab;
 window.updateInitials      = updateInitials;
 window.clearSigPad         = clearSigPad;
+window.addOffDay           = addOffDay;
+window.removeOffDay        = removeOffDay;
 window.selectBackend       = selectBackend;
 window.saveBackendConfig   = saveBackendConfig;
 window.testBackendConnection = testBackendConnection;
