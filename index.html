@@ -943,6 +943,9 @@ async function _gsSet(key, data, scriptUrl) {
 // ── Firebase helpers ───────────────────────────────────────────────────────
 function _initFirebase() {
   if (!_fbDb) {
+    if (typeof firebase === 'undefined') {
+      throw new Error('Firebase SDK not loaded. Switch to Supabase or add Firebase scripts.');
+    }
     if (!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
     _fbDb = firebase.firestore();
   }
@@ -3641,17 +3644,17 @@ async function testAlertEmail() {
 // FIREBASE CONNECTIVITY CHECK
 // ════════════════════════════════
 async function _checkFirebaseConnectivity() {
+  // Now checks Supabase connectivity (not Firebase)
   try {
-    // Try writing and reading a small test document
-    await _fbSet('__connectivity_check__', { ts: Date.now() });
-    const result = await _fbGet('__connectivity_check__');
+    await _sbSet('__connectivity_check__', { ts: Date.now() });
+    const result = await _sbGet('__connectivity_check__');
     if (result && result.ts) {
       _showFirebaseBanner('ok');
     } else {
       _showFirebaseBanner('warn');
     }
   } catch(e) {
-    console.warn('Firebase connectivity check failed:', e);
+    console.warn('Supabase connectivity check failed:', e);
     _showFirebaseBanner('error', e.message);
   }
 }
@@ -3669,15 +3672,14 @@ function _showFirebaseBanner(status, errMsg) {
   if (status === 'error') {
     banner.style.cssText = 'background:#fdf0ee;border:1.5px solid #e74c3c;border-radius:12px;padding:14px 18px;margin-bottom:20px;font-size:13px;color:#c0392b;';
     banner.innerHTML = `
-      <strong>⚠️ Firebase not reachable from this device</strong><br>
+      <strong>⚠️ Supabase not reachable from this device</strong><br>
       <span style="color:#888;font-size:12px">Entries made here will save locally only and won't sync across devices until the connection is restored.</span><br>
       <div style="margin-top:10px;padding:10px;background:#fff;border-radius:8px;font-size:12px;color:#555;line-height:1.6">
-        <strong>Most likely fix — Firestore rules have expired (30-day test mode limit):</strong><br>
-        1. Go to <a href="https://console.firebase.google.com" target="_blank" style="color:#c0392b">console.firebase.google.com</a><br>
-        2. Select your project → <strong>Firestore Database</strong> → <strong>Rules</strong><br>
-        3. Replace the rules with:<br>
-        <code style="display:block;background:#f5f3ef;padding:8px;border-radius:6px;margin-top:6px;font-size:11px">rules_version = '2';<br>service cloud.firestore {<br>&nbsp;&nbsp;match /databases/{database}/documents {<br>&nbsp;&nbsp;&nbsp;&nbsp;match /shift_portal/{document=**} {<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;allow read, write: if true;<br>&nbsp;&nbsp;&nbsp;&nbsp;}<br>&nbsp;&nbsp;}<br>}</code>
-        4. Click <strong>Publish</strong> → then refresh this page.
+        <strong>Possible fix — check your Supabase project is active:</strong><br>
+        1. Go to <a href="https://supabase.com" target="_blank" style="color:#c0392b">supabase.com</a> and confirm your project is running<br>
+        2. Check the <strong>shift_portal</strong> table exists in your database<br>
+        3. Confirm the Row Level Security policy allows reads and writes<br>
+        4. Refresh this page and try again.
       </div>
       <button onclick="document.getElementById('firebase-status-banner').remove()" 
         style="margin-top:10px;background:none;border:1px solid #e74c3c;border-radius:6px;padding:5px 12px;cursor:pointer;font-size:12px;color:#c0392b">
