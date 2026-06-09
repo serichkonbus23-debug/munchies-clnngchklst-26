@@ -9,7 +9,6 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Munchies Ops">
 <title>Munchies — Shift Operations Portal</title>
-<!-- Firebase SDK removed — using Supabase backend -->
 <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Mulish:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -405,7 +404,7 @@ body{background:var(--bg);color:var(--text);font-family:'Mulish',sans-serif;min-
         <div class="backend-option-icon" style="background:#e8f5f0">🟢</div>
         <div class="backend-option-body">
           <div class="backend-option-title">Supabase (Recommended)</div>
-          <div class="backend-option-desc">Open-source, real-time, generous free tier. Needs a Supabase project URL and anon key.</div>
+          <div class="backend-option-desc">Pre-configured for Munchies. Real-time sync across all devices — credentials already embedded, just save and go.</div>
         </div>
       </button>
       <button class="backend-option" id="bopt-sheets" onclick="selectBackend('sheets')">
@@ -419,7 +418,7 @@ body{background:var(--bg);color:var(--text);font-family:'Mulish',sans-serif;min-
         <div class="backend-option-icon" style="background:#fff3e0">🔥</div>
         <div class="backend-option-body">
           <div class="backend-option-title">Firebase Firestore</div>
-          <div class="backend-option-desc">Already configured with the Munchies project. Just click Save — no credentials needed.</div>
+          <div class="backend-option-desc">Google Firebase — requires the Firebase SDK to be reachable from your network.</div>
         </div>
       </button>
     </div>
@@ -945,18 +944,17 @@ async function _cloudSetWithConfig(key, data, cfg) {
 }
 
 // ── Supabase helpers ───────────────────────────────────────────────────────
-// Wraps fetch with a timeout so a slow/hanging Supabase never blocks the UI
-async function _fetchWithTimeout(url, options, ms = 5000) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), ms);
-  try {
-    const res = await fetch(url, { ...options, signal: controller.signal });
-    clearTimeout(timer);
-    return res;
-  } catch(e) {
-    clearTimeout(timer);
-    throw e;
-  }
+// Wraps fetch with a timeout so a slow/hanging Supabase never blocks the UI.
+// NOTE: We do NOT pass AbortSignal via fetch options because service workers
+// (PWA) attempt to clone the Request object via postMessage, and AbortSignal
+// is not cloneable — which throws DataCloneError and causes cloudGet to fall
+// back to localStorage. Instead we race the fetch against a timeout promise.
+async function _fetchWithTimeout(url, options, ms = 10000) {
+  const fetchPromise = fetch(url, options);
+  const timeoutPromise = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error('Supabase request timed out after ' + ms + 'ms')), ms)
+  );
+  return Promise.race([fetchPromise, timeoutPromise]);
 }
 
 async function _sbGet(key, url, anonKey) {
@@ -997,62 +995,261 @@ async function _gsSet(key, data, scriptUrl) {
   });
 }
 
-// ── Firebase helpers ───────────────────────────────────────────────────────
-function _initFirebase() {
-  if (!_fbDb) {
-    if (typeof firebase === 'undefined') {
-      throw new Error('Firebase SDK not loaded. Switch to Supabase or add Firebase scripts.');
-    }
-    if (!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
-    _fbDb = firebase.firestore();
-  }
-}
+// ── Firebase helpers (disabled — using Supabase REST which needs no SDK) ──
+async function _initFirebase() { throw new Error('Firebase disabled'); }
 function _fsId(key) { return key.replace(/\//g, '__'); }
-async function _fbGet(key) {
-  _initFirebase();
-  const snap = await _fbDb.collection('shift_portal').doc(_fsId(key)).get();
-  if (!snap.exists) return null;
-  const raw = snap.data().value;
-  return raw !== undefined ? JSON.parse(raw) : null;
-}
-async function _fbSet(key, data) {
-  _initFirebase();
-  await _fbDb.collection('shift_portal').doc(_fsId(key)).set({ value: JSON.stringify(data) });
-}
-
+async function _fbGet(key) { throw new Error('Firebase disabled'); }
+async function _fbSet(key, data) { throw new Error('Firebase disabled'); }
 // ── Active backend config (loaded once on boot) ────────────────────────────
 let _activeConfig = null;
 
 function _initBackend(cfg) {
   _activeConfig = cfg;
-  if (cfg.type === 'firebase') _initFirebase();
 }
 
-// ── Public cloudGet / cloudSet — routes to active backend ─────────────────
+// ════════════════════════════════════════════════════════════════════════════
+// ROBUST CLOUD SYNC
+// — Offline write queue  : writes that fail are queued and auto-flushed
+// — Startup probe        : detects paused Supabase on boot, shows clear modal
+// — Auto-reconnect       : polls every 30 s while offline, flushes queue
+// — navigator.onLine     : skips cloud attempt if device has no network
+// ════════════════════════════════════════════════════════════════════════════
+
+// ── Connectivity state ───────────────────────────────────────────────────
+let _cloudOnline = true;
+let _reconnectTimer = null;
+const OFFLINE_QUEUE_KEY = 'shift_offline_write_queue_v1';
+
+function _setCloudOnline(online) {
+  const changed = _cloudOnline !== online;
+  _cloudOnline = online;
+  if (changed) _updateConnBadge();
+  if (online) {
+    if (_reconnectTimer) { clearInterval(_reconnectTimer); _reconnectTimer = null; }
+    _flushOfflineQueue();
+  } else {
+    if (!_reconnectTimer) {
+      _reconnectTimer = setInterval(_reconnectAttempt, 30000);
+    }
+  }
+}
+
+function _updateConnBadge() {
+  let badge = document.getElementById('cloud-conn-badge');
+  if (!badge) {
+    badge = document.createElement('div');
+    badge.id = 'cloud-conn-badge';
+    badge.style.cssText = 'position:fixed;bottom:14px;left:50%;transform:translateX(-50%);z-index:9999;font-family:"Mulish",sans-serif;font-size:12px;font-weight:700;padding:7px 16px;border-radius:20px;pointer-events:none;transition:opacity .4s;opacity:0';
+    document.body.appendChild(badge);
+  }
+  if (!_cloudOnline) {
+    badge.style.cssText += ';background:#fff3cd;color:#856404;border:1px solid #ffc107;opacity:1';
+    badge.textContent = '\u26a0 Cloud sync unavailable \u2014 entries saved locally';
+  } else {
+    badge.style.cssText += ';background:#d4edda;color:#155724;border:1px solid #28a745;opacity:1';
+    badge.textContent = '\u2713 Cloud sync restored';
+    setTimeout(() => { if (badge) badge.style.opacity = '0'; }, 3000);
+  }
+}
+
+// ── Offline write queue ──────────────────────────────────────────────────
+function _enqueueWrite(key, data) {
+  let q = [];
+  try { q = JSON.parse(localStorage.getItem(OFFLINE_QUEUE_KEY) || '[]'); } catch(_) {}
+  q = q.filter(e => e.key !== key);
+  q.push({ key, data, ts: Date.now() });
+  try { localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(q)); } catch(_) {}
+}
+
+async function _flushOfflineQueue() {
+  if (!_activeConfig) return;
+  let q = [];
+  try { q = JSON.parse(localStorage.getItem(OFFLINE_QUEUE_KEY) || '[]'); } catch(_) {}
+  if (!q.length) return;
+  const failed = [];
+  for (const entry of q) {
+    try {
+      await _cloudSetWithConfig(entry.key, entry.data, _activeConfig);
+    } catch(_) {
+      failed.push(entry);
+    }
+  }
+  try { localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(failed)); } catch(_) {}
+  if (failed.length === 0 && q.length > 0) {
+    console.log('[sync] Flushed', q.length, 'queued write(s) to cloud.');
+    showToast('\u2713 ' + q.length + ' offline entry' + (q.length > 1 ? 'ies' : '') + ' synced to cloud!');
+  }
+}
+
+// ── Auto-reconnect probe ─────────────────────────────────────────────────
+async function _reconnectAttempt() {
+  if (!_activeConfig || !navigator.onLine) return;
+  try {
+    await _cloudGetWithConfig('__ping__', _activeConfig);
+    _setCloudOnline(true);
+  } catch(_) {}
+}
+
+// ── Auto-create the shift_portal table if it doesn't exist yet ─────────────
+// Uses Supabase's management API to run SQL. Silently succeeds if already exists.
+async function _ensureSupabaseTable() {
+  const sql = `
+    CREATE TABLE IF NOT EXISTS shift_portal (
+      key   TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+    ALTER TABLE shift_portal ENABLE ROW LEVEL SECURITY;
+    DO $$ BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_policies WHERE tablename='shift_portal' AND policyname='public_all'
+      ) THEN
+        EXECUTE 'CREATE POLICY public_all ON shift_portal FOR ALL USING (true) WITH CHECK (true)';
+      END IF;
+    END $$;
+  `.trim();
+  try {
+    const res = await _fetchWithTimeout(
+      `${SUPABASE_URL}/rest/v1/rpc/exec_sql`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': SUPABASE_ANON_KEY,
+          'Authorization': 'Bearer ' + SUPABASE_ANON_KEY,
+        },
+        body: JSON.stringify({ query: sql }),
+      }
+    );
+    // 200 or 404 (no exec_sql func) are both fine — table may already exist
+  } catch(_) { /* silent — table likely already exists or project is briefly unavailable */ }
+}
+
+// ── Startup probe ────────────────────────────────────────────────────────
+async function _probeBackendOnBoot() {
+  if (!_activeConfig) return;
+  if (!navigator.onLine) { _setCloudOnline(false); return; }
+  try {
+    await _cloudGetWithConfig('__ping__', _activeConfig);
+    _setCloudOnline(true);
+    await _flushOfflineQueue();
+  } catch(e) {
+    _setCloudOnline(false);
+    _showPausedProjectModal(e.message || 'Failed to fetch');
+  }
+}
+
+function _showPausedProjectModal(errMsg) {
+  if (document.getElementById('sb-paused-modal')) return;
+  const overlay = document.createElement('div');
+  overlay.id = 'sb-paused-modal';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(28,26,23,.6);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px;box-sizing:border-box';
+  overlay.innerHTML = `
+    <div style="background:#fff;border-radius:16px;padding:28px 28px 22px;max-width:420px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.25);font-family:'Mulish',sans-serif">
+      <div style="font-size:28px;margin-bottom:10px">\u2601\ufe0f</div>
+      <div style="font-size:17px;font-weight:800;color:#1c1a17;margin-bottom:8px">Cloud sync not reachable</div>
+      <div style="font-size:13px;color:#555;line-height:1.65;margin-bottom:18px">
+        The portal can't reach its database right now.<br>
+        <strong>Most common cause:</strong> the Supabase free-tier project auto-pauses after 7 days of inactivity.
+      </div>
+      <div style="background:#f5f3ef;border-radius:10px;padding:14px 16px;font-size:13px;color:#333;line-height:1.8;margin-bottom:18px">
+        <strong>To fix it:</strong><br>
+        1. Open <a href="https://supabase.com/dashboard/project/rgpwopoluwbfgqwqvrac" target="_blank" rel="noopener" style="color:#2d5a3d;font-weight:700">your Supabase project dashboard</a><br>
+        2. Click the <strong>"Restore project"</strong> button (takes ~30 s)<br>
+        3. Come back here and tap <strong>Retry</strong> below
+      </div>
+      <div style="font-size:11px;color:#aaa;margin-bottom:18px" id="sb-modal-err">Error: ${errMsg}</div>
+      <div style="display:flex;gap:10px;justify-content:flex-end">
+        <button onclick="document.getElementById('sb-paused-modal').remove()"
+          style="background:none;border:1px solid #ccc;border-radius:8px;padding:9px 18px;font-family:'Mulish',sans-serif;font-size:13px;cursor:pointer;color:#555">
+          Continue offline
+        </button>
+        <button id="sb-retry-btn" onclick="_retryBackendConnection()"
+          style="background:#2d5a3d;color:#fff;border:none;border-radius:8px;padding:9px 22px;font-family:'Mulish',sans-serif;font-size:13px;font-weight:700;cursor:pointer">
+          Retry
+        </button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+}
+
+async function _retryBackendConnection() {
+  const btn = document.getElementById('sb-retry-btn');
+  const errEl = document.getElementById('sb-modal-err');
+  if (btn) { btn.textContent = 'Checking\u2026'; btn.disabled = true; }
+  try {
+    await _cloudGetWithConfig('__ping__', _activeConfig);
+    _setCloudOnline(true);
+    const modal = document.getElementById('sb-paused-modal');
+    if (modal) modal.remove();
+    showToast('\u2713 Cloud sync connected!');
+    await _flushOfflineQueue();
+    if (currentUser) {
+      if (currentUser.role === 'manager' || currentUser.role === 'overview_manager') {
+        await loadManagerView();
+      } else {
+        const tabs = window._supVirtualTabs || [];
+        for (const vt of tabs) {
+          const saved = await loadChecklist(getTodayStr(), vt.tabKey);
+          if (saved && saved.tasks) supState[vt.tabKey] = saved.tasks;
+          await renderChecklist(vt.tabKey, 'sup', vt.sectionKey);
+          checkSubmittedState(vt.tabKey, saved);
+        }
+      }
+    }
+  } catch(e) {
+    if (btn) { btn.textContent = 'Retry'; btn.disabled = false; }
+    if (errEl) errEl.textContent = 'Error: ' + (e.message || 'Failed to fetch');
+    showToast('Still unreachable \u2014 check the Supabase dashboard.', true);
+  }
+}
+
+// ── Retry helper — exponential backoff ──────────────────────────────────
+async function _withRetry(fn, retries = 3, delayMs = 800) {
+  let lastErr;
+  for (let i = 0; i < retries; i++) {
+    try { return await fn(); }
+    catch(e) {
+      lastErr = e;
+      if (i < retries - 1) await new Promise(r => setTimeout(r, delayMs * Math.pow(2, i)));
+    }
+  }
+  throw lastErr;
+}
+
+// ── Public cloudGet / cloudSet ───────────────────────────────────────────
 async function cloudGet(key) {
-  // Always serve from localStorage first for instant response
   let local = null;
   try { const v = localStorage.getItem(key); if (v) local = JSON.parse(v); } catch(_) {}
-
-  // If we have a backend, fetch from cloud and update cache — but don't block on it
+  if (!navigator.onLine) return local;
   if (_activeConfig) {
     try {
-      const val = await _cloudGetWithConfig(key, _activeConfig);
+      const val = await _withRetry(() => _cloudGetWithConfig(key, _activeConfig));
       if (val !== null) {
         try { localStorage.setItem(key, JSON.stringify(val)); } catch(_) {}
+        _setCloudOnline(true);
         return val;
       }
-    } catch(e) { console.warn('cloudGet backend failed, using localStorage:', e); }
+      _setCloudOnline(true);
+    } catch(e) {
+      console.warn('cloudGet backend failed, using localStorage:', e);
+      _setCloudOnline(false);
+    }
   }
-
   return local;
 }
 
 async function cloudSet(key, data) {
-  // Always write to localStorage first (instant, offline-safe)
   try { localStorage.setItem(key, JSON.stringify(data)); } catch(_) {}
   if (!_activeConfig) return;
-  try { await _cloudSetWithConfig(key, data, _activeConfig); } catch(e) { console.warn('cloudSet backend failed:', e); }
+  if (!navigator.onLine) { _enqueueWrite(key, data); _setCloudOnline(false); return; }
+  try {
+    await _withRetry(() => _cloudSetWithConfig(key, data, _activeConfig));
+    _setCloudOnline(true);
+  } catch(e) {
+    console.warn('cloudSet backend failed, queuing for retry:', e);
+    _enqueueWrite(key, data);
+    _setCloudOnline(false);
+  }
 }
 
 // ════════════════════════════════
@@ -1184,31 +1381,26 @@ let _masterChecklistsCache = null;
 async function loadMasterChecklists() {
   if (_masterChecklistsCache) return _masterChecklistsCache;
   const saved = await cloudGet(STORAGE_KEYS.masterChecklists);
-  if (saved) {
-    // Deep-merge: start from defaults, overlay saved values, but always
-    // preserve safety-critical fields so a bad cloud save cannot lock
-    // supervisors out of their own checklists.
-    const merged = JSON.parse(JSON.stringify(DEFAULT_CHECKLISTS));
-    Object.entries(saved).forEach(([key, def]) => {
-      if (merged[key]) {
-        // Built-in section: take saved label, color, groups, closingOwners
-        merged[key].label  = def.label  !== undefined ? def.label  : merged[key].label;
-        merged[key].color  = def.color  !== undefined ? def.color  : merged[key].color;
-        merged[key].groups = def.groups !== undefined ? def.groups : merged[key].groups;
-        if (key === 'closing' && def.closingOwners) merged[key].closingOwners = def.closingOwners;
-        // For non-closing built-ins: only accept supervisors if it is a proper array
-        if (key !== 'closing' && Array.isArray(def.supervisors)) merged[key].supervisors = def.supervisors;
-        // CRITICAL: closing.supervisors must ALWAYS be null
-        if (key === 'closing') merged[key].supervisors = null;
-      } else {
-        // Custom tab - take as-is
-        merged[key] = def;
+  const cl = saved || JSON.parse(JSON.stringify(DEFAULT_CHECKLISTS));
+  // SAFETY: ensure every built-in section always exists in cl.
+  // If the cloud save was made before a section was added, or if it got
+  // corrupted, the missing key would silently hide the tab for all supervisors.
+  Object.entries(DEFAULT_CHECKLISTS).forEach(([key, def]) => {
+    if (!cl[key]) {
+      // Section missing entirely — restore from default
+      cl[key] = JSON.parse(JSON.stringify(def));
+    } else {
+      // Section exists — patch critical access-control fields only:
+      // closing.supervisors must always be null (open to all with access)
+      if (key === 'closing') cl[key].supervisors = null;
+      // For non-closing built-ins, fall back to default supervisors if empty/missing
+      // (an empty array would lock every supervisor out of that tab)
+      if (key !== 'closing' && (!Array.isArray(cl[key].supervisors) || cl[key].supervisors.length === 0)) {
+        cl[key].supervisors = JSON.parse(JSON.stringify(def.supervisors));
       }
-    });
-    _masterChecklistsCache = merged;
-  } else {
-    _masterChecklistsCache = JSON.parse(JSON.stringify(DEFAULT_CHECKLISTS));
-  }
+    }
+  });
+  _masterChecklistsCache = cl;
   return _masterChecklistsCache;
 }
 async function saveMasterChecklists(cl) {
@@ -1790,6 +1982,9 @@ async function enterSupervisor() {
 
   activeClTab = tabKeys[0];
 
+  // ── Initialise signature pads for all supervisor panels ───────────────
+  virtualTabs.forEach(vt => initSigPad(`sigpad-${vt.tabKey}-sup`, vt.tabKey, 'sup'));
+
   // ── Load all tab checklists in parallel, then process ─────────────────
   const savedChecklists = await Promise.all(
     virtualTabs.map(vt => loadChecklist(getTodayStr(), vt.tabKey))
@@ -2050,7 +2245,7 @@ function checkSubmittedState(section, savedData) {
   const badge = document.getElementById(section+'-submitted');
   if (btn) btn.style.display = submitted ? 'none' : 'inline-flex';
   if (badge) badge.classList.toggle('show', submitted);
-  const remEl = document.getElementById(`remarks-${tabKey}-sup`);
+  const remEl = document.getElementById(`remarks-${section}-sup`);
   if (remEl && submitted) remEl.readOnly = true;
 }
 
@@ -4147,6 +4342,8 @@ window.saveAlertSettings   = saveAlertSettings;
 window.testAlertEmail      = testAlertEmail;
 window.sendWhatsAppAlert   = sendWhatsAppAlert;
 window.dismissAlert        = dismissAlert;
+window._retryBackendConnection   = _retryBackendConnection;
+window._ensureSupabaseTable      = _ensureSupabaseTable;
 
 // ════════════════════════════════
 // SHIFT TIME INDICATOR
@@ -4207,23 +4404,20 @@ function _updateShiftIndicator() {
 // 'load' event. Instead check readyState, and wrap everything in try/catch
 // so a slow/failing Firebase call never prevents the login screen showing.
 async function _bootApp() {
-  // Supabase is the default backend
-  const SUPABASE_DEFAULT_CFG = { type: 'supabase', url: 'https://rgpwopoluwbfgqwqvrac.supabase.co', key: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJncHdvcG9sdXdiZmdxd3F2cmFjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA4MzEyODEsImV4cCI6MjA5NjQwNzI4MX0.GK4rJZpVwYcekrsgQMGvwBjP2Sz7O_uUrLA9qrYt6Fo' };
-  let cfg = getBackendConfig();
-  // Always override to Supabase — ensures all devices use it even if they had Firebase stored
-  cfg = SUPABASE_DEFAULT_CFG;
+  // Supabase is the backend — pure fetch(), no SDK, works in every browser.
+  const cfg = { type: 'supabase', url: SUPABASE_URL, key: SUPABASE_ANON_KEY };
   setBackendConfig(cfg);
   _initBackend(cfg);
 
-  // Show login immediately using built-in users so the screen is never blank
+  // Show login immediately — never blank
   _populateDropdownFromBuiltIn();
   showScreen('login');
   _renderBackendBadge(cfg);
 
-  // Then try to refresh the dropdown from the backend in the background
-  try { await refreshLoginDropdown(); } catch(e) {
-    console.warn('refreshLoginDropdown failed, using built-in users.', e);
-  }
+  // Ensure the Supabase table exists, then refresh users — all silent in background
+  _ensureSupabaseTable().then(() => refreshLoginDropdown()).catch(e =>
+    console.warn('Background init failed, using built-in users:', e)
+  );
 }
 
 function _renderBackendBadge(cfg) {
@@ -4236,7 +4430,7 @@ function _renderBackendBadge(cfg) {
   if (existing) existing.remove();
   if (!cfg) return;
 
-  const labels = { supabase:'🟢 Supabase', sheets:'📊 Google Sheets', firebase:'🔥 Firebase' };
+  const labels = { supabase:'🟢 Supabase (synced)', sheets:'📊 Google Sheets', firebase:'🔥 Firebase' };
   const badge = document.createElement('div');
   badge.id = 'backend-login-badge';
   badge.className = 'backend-lock-badge';
