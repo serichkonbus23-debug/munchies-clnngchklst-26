@@ -2311,33 +2311,60 @@ async function submitChecklist(tabKey) {
   const cl = await loadMasterChecklists();
   const warn = document.getElementById(tabKey+'-warn');
 
-  // For closing, only count tasks the user is responsible for
-  let total, done;
+  // ── Task completion count ─────────────────────────────────────────────────
+  // IMPORTANT: supState is keyed by tabKey (e.g. foh_cashier__morning), NOT section.
+  // Previous versions used supState[section] which always returned undefined for
+  // split-shift supervisors, making done=0 and falsely blocking every submission.
+  let total, done, missingItems = [];
+
   if (section === 'closing' && currentUser.role !== 'manager') {
     const allowedCats = getUserClosingSections(currentUser);
     if (allowedCats) {
-      let aTotal = 0, aDone = 0, gIdx = 0;
+      let gIdx = 0;
       cl[section].groups.forEach(g => {
-        const cat = g.cat;
-        g.tasks.forEach((_, ti) => {
-          if (!allowedCats || allowedCats.includes(cat)) {
-            aTotal++;
-            if (supState[section]?.[gIdx]?.checked) aDone++;
+        g.tasks.forEach((taskText, ti) => {
+          if (allowedCats.includes(g.cat)) {
+            total = (total || 0) + 1;
+            if (supState[tabKey]?.[gIdx]?.checked) {
+              done = (done || 0) + 1;
+            } else {
+              missingItems.push({ cat: g.cat, task: taskText });
+            }
           }
           gIdx++;
         });
       });
-      total = aTotal; done = aDone;
+      total = total || 0; done = done || 0;
     } else {
-      total = getTasksFlatSync(cl, section).length;
-      done = Object.values(supState[section]||{}).filter(v => v.checked).length;
+      const flat = getTasksFlatSync(cl, section);
+      total = flat.length;
+      done = Object.values(supState[tabKey]||{}).filter(v => v.checked && !v._otherSup).length;
+      if (done < total) {
+        let gIdx = 0;
+        cl[section].groups.forEach(g => {
+          g.tasks.forEach(taskText => {
+            if (!supState[tabKey]?.[gIdx]?.checked) missingItems.push({ cat: g.cat, task: taskText });
+            gIdx++;
+          });
+        });
+      }
     }
   } else {
-    total = getTasksFlatSync(cl, section).length;
-    done = Object.values(supState[section]||{}).filter(v => v.checked).length;
+    const flat = getTasksFlatSync(cl, section);
+    total = flat.length;
+    done = Object.values(supState[tabKey]||{}).filter(v => v.checked && !v._otherSup).length;
+    if (done < total) {
+      let gIdx = 0;
+      cl[section].groups.forEach(g => {
+        g.tasks.forEach(taskText => {
+          if (!supState[tabKey]?.[gIdx]?.checked) missingItems.push({ cat: g.cat, task: taskText });
+          gIdx++;
+        });
+      });
+    }
   }
 
-  if (done < total) { warn.classList.add('show'); setTimeout(()=>warn.classList.remove('show'),3500); return; }
+  // ── Signature check — required before proceeding ────────────────────────
   const sigData = getSigDataURL(tabKey, 'sup');
   if (!sigData) {
     warn.textContent = '⚠ Please draw your signature before submitting';
@@ -2345,21 +2372,69 @@ async function submitChecklist(tabKey) {
     setTimeout(()=>{warn.classList.remove('show');warn.textContent='⚠ Complete all tasks before submitting';},3500);
     return;
   }
+
+  // ── If tasks are incomplete, show confirmation dialog instead of blocking ─
+  if (done < total) {
+    _showIncompleteSubmitDialog(tabKey, missingItems, total, done);
+    return;
+  }
+  // Hand off to shared submit executor
+  await _doSubmitChecklist(tabKey, false, { tw, cl, section, sigData });
+}
+
+// ── Core submit executor — called by submitChecklist and _forceSubmitChecklist ──
+async function _doSubmitChecklist(tabKey, forceSubmit, ctx) {
+  // ctx may be passed from submitChecklist to avoid recomputing; if absent, recompute.
+  let { tw, cl, section, sigData } = ctx || {};
+  if (!section) section = tabKey.replace(/__(morning|afternoon|closing)$/, '');
+  if (!cl) cl = await loadMasterChecklists();
+  if (!sigData) sigData = getSigDataURL(tabKey, 'sup');
+
+  // Signature still required even for force-submit
+  if (!sigData) {
+    const warn = document.getElementById(tabKey+'-warn');
+    if (warn) {
+      warn.textContent = '\u26a0 Please draw your signature before submitting';
+      warn.classList.add('show');
+      setTimeout(()=>{warn.classList.remove('show');warn.textContent='\u26a0 Complete all tasks before submitting';},3500);
+    }
+    return;
+  }
+
+  // tw may not be set if called from _forceSubmitChecklist — recompute
+  if (!tw) {
+    const isManager = currentUser.role === 'manager' || currentUser.role === 'overview_manager';
+    if (!isManager) {
+      const userWindowKey = await getUserSectionShiftWindow(currentUser.id, section);
+      const win = SHIFT_WINDOWS[userWindowKey] || SHIFT_WINDOWS['morning'];
+      const nowMins = getCurrentTimeMins();
+      function inWin(s, e) { const sm=timeToMins(s),em=timeToMins(e); return em<sm?(nowMins>=sm||nowMins<=em):(nowMins>=sm&&nowMins<=em); }
+      const inPrimary = inWin(win.primary.start, win.primary.end);
+      const inCatchup = userWindowKey !== 'closing' && inWin(AFTERNOON_CATCHUP.start, AFTERNOON_CATCHUP.end);
+      tw = { allowed: inPrimary || inCatchup, late: !inPrimary, windowLabel: win.label,
+             primaryLabel: `${win.primary.start}\u2013${win.primary.end}` };
+    } else {
+      const tabSuffix = tabKey.match(/__(morning|afternoon|closing)$/);
+      tw = checkShiftWindow(section, tabSuffix ? tabSuffix[1] : null);
+    }
+  }
+
   showSyncOverlay(true);
   const today = getTodayStr();
   const ex = (await loadChecklist(today, tabKey)) || {};
   const remEl = document.getElementById(`remarks-${tabKey}-sup`);
+
   // Merge: start from existing (all sups' data), then overlay only THIS user's real ticks.
   // Strip _otherSup placeholder entries so we never overwrite another supervisor's work.
+  // NOTE: supState is keyed by tabKey, not section.
   const myRealTasks = {};
-  Object.entries(supState[section] || {}).forEach(([idx, val]) => {
+  Object.entries(supState[tabKey] || {}).forEach(([idx, val]) => {
     if (!val._otherSup) myRealTasks[idx] = val;
   });
   const mergedTasks = Object.assign({}, ex.tasks || {}, myRealTasks);
   const actualNow = new Date();
-  // For closing: track per-supervisor submission so other sups aren't
-  // incorrectly shown as submitted when they load the shared document.
-  const submittedBy = ex.submittedBy || {};  // may be object (new) or string (legacy)
+
+  const submittedBy = ex.submittedBy || {};
   const submittedByObj = (typeof submittedBy === 'object' && submittedBy !== null && !Array.isArray(submittedBy))
     ? submittedBy : {};
   if (section === 'closing') {
@@ -2369,12 +2444,11 @@ async function submitChecklist(tabKey) {
       isLate: tw.late,
       shiftLeader: document.getElementById(section+'-leader')?.value||'',
       name: currentUser.name,
-      signature: sigData,   // store signature per-user, not shared
+      signature: sigData,
       remarks: remEl?.value || '',
+      incompleteSubmit: forceSubmit || false,
     };
   }
-  // "submitted" on the shared doc = true only when ALL expected closing supervisors have submitted
-  // For non-closing sections it stays a simple boolean as before.
   const allClosingSupIds = ['portia','evans_o','ruth','evans_g','michael','patience','sarah'];
   const closingAllDone = section === 'closing'
     ? allClosingSupIds.every(id => !!submittedByObj[id])
@@ -2391,20 +2465,24 @@ async function submitChecklist(tabKey) {
     userName: currentUser.name, userId: currentUser.id,
     shiftLeader: document.getElementById(section+'-leader')?.value||'',
     signature: sigData,
-    remarks: remEl?.value || ''
+    remarks: remEl?.value || '',
+    incompleteSubmit: forceSubmit || false,
   });
   await saveChecklist(today, tabKey, ex);
   await renderChecklist(tabKey, 'sup', section);
   if (remEl) remEl.readOnly = true;
-  // Lock signature pad for the submitting user
   const canvas = document.getElementById(`sigpad-${tabKey}-sup`);
   if (canvas) canvas.classList.add('readonly');
   const clearBtn = canvas?.closest('.sig-pad-wrap')?.querySelector('.sig-clear-btn');
   if (clearBtn) clearBtn.style.display = 'none';
   showSyncOverlay(false);
-  showToast('✓ '+(cl[section]?.label||section)+' checklist submitted!');
 
-  // If a morning split tab was just submitted, unlock the corresponding afternoon tab
+  if (forceSubmit) {
+    showToast('\u26a0 Submitted with incomplete tasks — noted on report.');
+  } else {
+    showToast('\u2713 ' + (cl[section]?.label || section) + ' checklist submitted!');
+  }
+
   if (tabKey.endsWith('__morning')) {
     const afternoonTabKey = tabKey.replace('__morning', '__afternoon');
     const afternoonBtn = document.querySelector(`[data-tab="${afternoonTabKey}"]`);
@@ -2413,10 +2491,9 @@ async function submitChecklist(tabKey) {
       const lockIcon = afternoonBtn.querySelector('.ctab-lock-icon');
       if (lockIcon) lockIcon.remove();
       afternoonBtn.onclick = () => switchSupTab(afternoonTabKey);
-      showToast('🔓 Afternoon tab is now unlocked!', false, true);
+      showToast('\uD83D\uDD13 Afternoon tab is now unlocked!', false, true);
     }
   }
-  // If an afternoon split tab was submitted, unlock closing tab if exists
   if (tabKey.endsWith('__afternoon')) {
     const closingTabKey = tabKey.replace('__afternoon', '__closing');
     const closingBtn = document.querySelector(`[data-tab="${closingTabKey}"]`);
@@ -2427,6 +2504,84 @@ async function submitChecklist(tabKey) {
       closingBtn.onclick = () => switchSupTab(closingTabKey);
     }
   }
+}
+
+// ── Incomplete submit dialog ───────────────────────────────────────────────
+// Shows when a supervisor tries to submit with tasks still unchecked.
+// Lists what's missing, gives them the choice to go back or submit anyway.
+function _showIncompleteSubmitDialog(tabKey, missingItems, total, done) {
+  const existing = document.getElementById('incomplete-submit-modal');
+  if (existing) existing.remove();
+
+  const remaining = total - done;
+
+  // Group missing items by category
+  const byCategory = {};
+  missingItems.forEach(({ cat, task }) => {
+    if (!byCategory[cat]) byCategory[cat] = [];
+    byCategory[cat].push(task);
+  });
+
+  let itemsHtml = '';
+  Object.entries(byCategory).forEach(([cat, tasks]) => {
+    itemsHtml += `<div style="margin-bottom:12px">
+      <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:5px">${cat}</div>`;
+    tasks.forEach(task => {
+      itemsHtml += `<div style="display:flex;gap:8px;align-items:flex-start;padding:6px 0;border-bottom:1px solid var(--border)">
+        <span style="color:#e74c3c;font-size:14px;margin-top:1px;flex-shrink:0">\u25a1</span>
+        <span style="font-size:13px;color:var(--text);line-height:1.5">${task}</span>
+      </div>`;
+    });
+    itemsHtml += `</div>`;
+  });
+
+  const overlay = document.createElement('div');
+  overlay.id = 'incomplete-submit-modal';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(28,26,23,.55);z-index:10000;display:flex;align-items:flex-end;justify-content:center;padding:0;box-sizing:border-box;animation:fadeIn .18s ease';
+  overlay.innerHTML = `
+    <div style="background:var(--surface);border-radius:20px 20px 0 0;padding:0;max-width:520px;width:100%;box-shadow:0 -8px 40px rgba(0,0,0,.18);font-family:'Mulish',sans-serif;max-height:82vh;display:flex;flex-direction:column">
+      <!-- Header -->
+      <div style="padding:22px 22px 16px;border-bottom:1px solid var(--border);flex-shrink:0">
+        <div style="display:flex;align-items:center;gap:12px">
+          <div style="width:40px;height:40px;border-radius:50%;background:#fdf0ee;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">\u26a0\ufe0f</div>
+          <div>
+            <div style="font-size:16px;font-weight:800;color:var(--text)">${remaining} task${remaining > 1 ? 's' : ''} not yet completed</div>
+            <div style="font-size:12px;color:var(--muted);margin-top:2px">${done} of ${total} tasks done</div>
+          </div>
+        </div>
+      </div>
+      <!-- Task list -->
+      <div style="padding:16px 22px;overflow-y:auto;flex:1">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:12px;font-weight:600">The following tasks have not been ticked:</div>
+        ${itemsHtml}
+      </div>
+      <!-- Actions -->
+      <div style="padding:16px 22px 24px;border-top:1px solid var(--border);flex-shrink:0">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:12px;text-align:center;line-height:1.5">
+          You can go back to complete them, or submit now.<br>
+          <strong style="color:#c0392b">Submitting with incomplete tasks will be noted on the report.</strong>
+        </div>
+        <div style="display:flex;gap:10px">
+          <button onclick="document.getElementById('incomplete-submit-modal').remove()"
+            style="flex:1;padding:13px 10px;background:var(--surface2);border:1.5px solid var(--border);border-radius:10px;font-family:'Mulish',sans-serif;font-size:14px;font-weight:700;cursor:pointer;color:var(--text)">
+            \u2190 Go back &amp; complete
+          </button>
+          <button onclick="_forceSubmitChecklist('${tabKey}')"
+            style="flex:1;padding:13px 10px;background:#c0392b;border:none;border-radius:10px;font-family:'Mulish',sans-serif;font-size:14px;font-weight:700;cursor:pointer;color:#fff">
+            Submit anyway
+          </button>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+}
+
+// Called when the supervisor taps "Submit anyway" from the incomplete dialog
+async function _forceSubmitChecklist(tabKey) {
+  const modal = document.getElementById('incomplete-submit-modal');
+  if (modal) modal.remove();
+  // Resume the normal submit flow, bypassing the completion check
+  await _doSubmitChecklist(tabKey, true);
 }
 
 async function mgrSubmitChecklist(section) {
@@ -4297,6 +4452,7 @@ window.doLogin             = doLogin;
 window.togglePin           = togglePin;
 window.logout              = logout;
 window.submitChecklist     = submitChecklist;
+window._forceSubmitChecklist = _forceSubmitChecklist;
 window.loadManagerView     = loadManagerView;
 window.navigateDate        = navigateDate;
 window.switchMgrView       = switchMgrView;
