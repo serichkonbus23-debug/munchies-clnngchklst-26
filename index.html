@@ -99,6 +99,7 @@ body{background:var(--bg);color:var(--text);font-family:'Mulish',sans-serif;min-
 #screen-login::after{content:'';position:absolute;width:400px;height:400px;border-radius:50%;background:rgba(200,168,75,0.05);bottom:-150px;left:-100px}
 .login-card{background:var(--surface);border-radius:20px;padding:48px 44px;width:420px;max-width:calc(100vw - 32px);box-shadow:var(--shadow-lg);position:relative;z-index:1;animation:slideUp .4s ease}
 @keyframes slideUp{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:translateY(0)}}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
 .login-logo{width:54px;height:54px;background:var(--accent);border-radius:14px;display:flex;align-items:center;justify-content:center;margin-bottom:20px}
 .login-logo svg{width:28px;height:28px}
 .login-card h1{font-family:'Playfair Display',serif;font-size:26px;margin-bottom:4px}
@@ -634,6 +635,11 @@ body{background:var(--bg);color:var(--text);font-family:'Mulish',sans-serif;min-
         </div>
         <button class="submit-btn" style="padding:9px 22px;font-size:13px" onclick="saveAlertSettings()">💾 Save Alert Settings</button>
         <button class="submit-btn" style="padding:9px 22px;font-size:13px;background:#555;margin-left:8px" onclick="testAlertEmail()">📧 Send Test Email</button>
+        <div style="margin-top:20px;border-top:1px solid var(--border);padding-top:20px">
+          <div style="font-size:13px;font-weight:700;margin-bottom:6px">🔧 Data Migration</div>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Migrate historical records from V6 (shared key) to V7 (per-supervisor key). Safe to run multiple times. A log is saved to Supabase for audit.</div>
+          <button class="submit-btn" style="padding:9px 22px;font-size:13px;background:#7b3f6e" onclick="openMigrationModal()">🔄 Run V6→V7 Migration</button>
+        </div>
       </div>
     </div>
 
@@ -980,12 +986,40 @@ async function _sbSet(key, data, url, anonKey) {
 }
 
 // ── Google Sheets helpers ──────────────────────────────────────────────────
+// Google Sheets backend uses an Apps Script Web App as a REST proxy.
+// The Apps Script code (deploy as "Anyone" / "Anyone, even anonymous"):
+//
+//   const SHEET_ID = '<your-spreadsheet-id>';
+//   function doGet(e) {
+//     const key = e.parameter.key;
+//     const sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName('data') ||
+//                   SpreadsheetApp.openById(SHEET_ID).insertSheet('data');
+//     const data = sheet.getDataRange().getValues();
+//     for (const row of data) {
+//       if (row[0] === key) return ContentService.createTextOutput(row[1]).setMimeType(ContentService.MimeType.TEXT);
+//     }
+//     return ContentService.createTextOutput('null').setMimeType(ContentService.MimeType.TEXT);
+//   }
+//   function doPost(e) {
+//     const payload = JSON.parse(e.postData.contents);
+//     const sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName('data') ||
+//                   SpreadsheetApp.openById(SHEET_ID).insertSheet('data');
+//     const data = sheet.getDataRange().getValues();
+//     for (let i = 0; i < data.length; i++) {
+//       if (data[i][0] === payload.key) {
+//         sheet.getRange(i+1, 2).setValue(payload.value);
+//         return ContentService.createTextOutput('ok');
+//       }
+//     }
+//     sheet.appendRow([payload.key, payload.value]);
+//     return ContentService.createTextOutput('ok');
+//   }
 async function _gsGet(key, scriptUrl) {
   const res = await fetch(`${scriptUrl}?key=${encodeURIComponent(key)}`);
   if (!res.ok) throw new Error('Apps Script ' + res.status);
   const text = await res.text();
   if (!text || text === 'null') return null;
-  return JSON.parse(text);
+  try { return JSON.parse(text); } catch(_) { return text; }
 }
 async function _gsSet(key, data, scriptUrl) {
   await fetch(scriptUrl, {
@@ -1189,7 +1223,8 @@ async function _retryBackendConnection() {
       } else {
         const tabs = window._supVirtualTabs || [];
         for (const vt of tabs) {
-          const saved = await loadChecklist(getTodayStr(), vt.tabKey);
+          const _uid = vt.sectionKey === 'closing' ? null : currentUser.id;
+          const saved = await loadChecklist(getTodayStr(), vt.sectionKey, _uid);
           if (saved && saved.tasks) supState[vt.tabKey] = saved.tasks;
           await renderChecklist(vt.tabKey, 'sup', vt.sectionKey);
           checkSubmittedState(vt.tabKey, saved);
@@ -1372,8 +1407,16 @@ const TAB_COLORS = [
 
 const STORAGE_KEYS = {
   masterChecklists: 'shift_master_checklists_v6',
-  checklist: (date, section) => `shift_cl:${date}:${section}`,
-  remarks: (date) => `shift_remarks:${date}`,
+  // v7: per-supervisor scoped keys to prevent cross-contamination
+  // Format: shift_cl:DATE:SECTION:USERID  (supervisors)
+  //         shift_cl:DATE:SECTION          (legacy / manager reads)
+  checklist:        (date, section, userId) => userId
+    ? `shift_cl:${date}:${section}:${userId}`
+    : `shift_cl:${date}:${section}`,
+  remarks:          (date) => `shift_remarks:${date}`,
+  // Legacy key (v6) — used only during migration reads
+  checklistLegacy:  (date, section) => `shift_cl:${date}:${section}`,
+  migrationLog:     'shift_migration_log_v1',
 };
 
 // In-memory cache so loadMasterChecklists never hits Supabase more than once per session
@@ -1407,11 +1450,26 @@ async function saveMasterChecklists(cl) {
   _masterChecklistsCache = cl; // update cache on save
   await cloudSet(STORAGE_KEYS.masterChecklists, cl);
 }
-async function loadChecklist(date, section) {
-  return await cloudGet(STORAGE_KEYS.checklist(date, section));
+async function loadChecklist(date, section, userId) {
+  // If userId is given, load from per-user key; fall back to legacy shared key for migration.
+  if (userId) {
+    const fresh = await cloudGet(STORAGE_KEYS.checklist(date, section, userId));
+    if (fresh !== null) return fresh;
+    // Attempt legacy migration: read old shared key, extract this user's data if their userId matches
+    const legacy = await cloudGet(STORAGE_KEYS.checklistLegacy(date, section));
+    if (legacy && legacy.userId === userId) {
+      // Migrate: write to new scoped key then return
+      await saveChecklist(date, section, legacy, userId);
+      return legacy;
+    }
+    return null;
+  }
+  // No userId — manager overview / report reads: prefer legacy shared key for backwards compat
+  return await cloudGet(STORAGE_KEYS.checklistLegacy(date, section));
 }
-async function saveChecklist(date, section, data) {
-  await cloudSet(STORAGE_KEYS.checklist(date, section), data);
+async function saveChecklist(date, section, data, userId) {
+  const key = STORAGE_KEYS.checklist(date, section, userId || null);
+  await cloudSet(key, data);
 }
 async function loadRemarks(date) {
   const r = await cloudGet(STORAGE_KEYS.remarks(date));
@@ -1419,6 +1477,13 @@ async function loadRemarks(date) {
 }
 async function saveRemarks(date, remarks) {
   await cloudSet(STORAGE_KEYS.remarks(date), remarks);
+}
+
+// Derive the shift window string from a tabKey that may have a __suffix
+function _getShiftWindowFromTabKey(tabKey) {
+  const m = tabKey.match(/__(morning|afternoon|closing)$/);
+  if (m) return m[1];
+  return 'morning';
 }
 
 async function getTasksFlat(section) {
@@ -1681,7 +1746,7 @@ async function doLogin() {
           if (!tabs.length) return;
           const [freshCl, freshSaved] = await Promise.all([
             loadMasterChecklists(),
-            Promise.all(tabs.map(vt => loadChecklist(getTodayStr(), vt.tabKey)))
+            Promise.all(tabs.map(vt => loadChecklist(getTodayStr(), vt.tabKey, currentUser.id)))
           ]);
           for (let i = 0; i < tabs.length; i++) {
             const vt = tabs[i];
@@ -1987,7 +2052,11 @@ async function enterSupervisor() {
 
   // ── Load all tab checklists in parallel, then process ─────────────────
   const savedChecklists = await Promise.all(
-    virtualTabs.map(vt => loadChecklist(getTodayStr(), vt.tabKey))
+    virtualTabs.map(vt => {
+      const _base = vt.sectionKey === 'closing' ? 'closing' : vt.sectionKey;
+      const _uid  = vt.sectionKey === 'closing' ? null : currentUser.id;
+      return loadChecklist(getTodayStr(), _base, _uid);
+    })
   );
 
   for (let i = 0; i < virtualTabs.length; i++) {
@@ -2097,7 +2166,9 @@ async function renderChecklist(section, mode, sectionKeyOverride) {
   if (!cl[clKey]) return;
   const st = mode==='mgr' ? (mgrState[section]||{}) : (supState[section]||{});
   const date = mode==='mgr' ? currentDate : getTodayStr();
-  const savedData = await loadChecklist(date, section);
+  const savedData = mode==='sup' && currentUser && currentUser.role !== 'manager'
+    ? await loadChecklist(date, section === 'closing' ? 'closing' : section.replace(/__(morning|afternoon|closing)$/, ''), section === 'closing' ? null : currentUser.id)
+    : await loadChecklist(date, section.replace(/__(morning|afternoon|closing)$/, ''), null);
   const def = cl[clKey];
   // For closing, only lock tasks if THIS user has submitted (not just anyone)
   let submitted = false;
@@ -2160,8 +2231,8 @@ async function renderChecklist(section, mode, sectionKeyOverride) {
   if (totalEl) totalEl.textContent = getTasksFlatSync(cl, clKey).length;
 }
 
-async function isSubmitted(date, section) {
-  const d = await loadChecklist(date, section);
+async function isSubmitted(date, section, userId) {
+  const d = await loadChecklist(date, section, userId || null);
   return d && d.submitted;
 }
 
@@ -2186,23 +2257,32 @@ function updateInitials(section, mode, idx, val) {
 
 async function autoSave(section) {
   const today = getTodayStr();
-  const ex = (await loadChecklist(today, section)) || {};
-  ex.tasks = supState[section];
+  const baseSection = section.replace(/__(morning|afternoon|closing)$/, '');
+  const isClosing = baseSection === 'closing';
+  const uid = isClosing ? null : currentUser.id;
+  const ex = (await loadChecklist(today, isClosing ? 'closing' : baseSection, uid)) || {};
+  // Stamp per-task ISO timestamps when a task is first checked
+  const now = new Date();
+  const tasks = supState[section] || {};
+  Object.entries(tasks).forEach(([idx, t]) => {
+    if (t && t.checked && !t.tsISO) t.tsISO = now.toISOString();
+  });
+  ex.tasks = tasks;
   ex.userId = currentUser.id;
   ex.userName = currentUser.name;
   const remEl = document.getElementById(`remarks-${section}-sup`);
   if (remEl) ex.remarks = remEl.value;
-  await saveChecklist(today, section, ex);
+  await saveChecklist(today, isClosing ? 'closing' : baseSection, ex, uid);
 }
 
 async function mgrAutoSave(section) {
-  const ex = (await loadChecklist(currentDate, section)) || {};
+  const ex = (await loadChecklist(currentDate, section, 'mgr')) || {};
   ex.tasks = mgrState[section];
   ex.userId = currentUser.id;
   ex.userName = currentUser.name;
   const remEl = document.getElementById(`mgr-remarks-${section}`);
   if (remEl) ex.remarks = remEl.value;
-  await saveChecklist(currentDate, section, ex);
+  await saveChecklist(currentDate, section, ex, 'mgr');
 }
 
 async function updateProgress(section, mode, clObj) {
@@ -2421,18 +2501,22 @@ async function _doSubmitChecklist(tabKey, forceSubmit, ctx) {
 
   showSyncOverlay(true);
   const today = getTodayStr();
-  const ex = (await loadChecklist(today, tabKey)) || {};
+  const ex = (await loadChecklist(today, tabKey, currentUser.id)) || {};
   const remEl = document.getElementById(`remarks-${tabKey}-sup`);
 
   // Merge: start from existing (all sups' data), then overlay only THIS user's real ticks.
   // Strip _otherSup placeholder entries so we never overwrite another supervisor's work.
   // NOTE: supState is keyed by tabKey, not section.
   const myRealTasks = {};
+  const actualNow = new Date();
   Object.entries(supState[tabKey] || {}).forEach(([idx, val]) => {
-    if (!val._otherSup) myRealTasks[idx] = val;
+    if (!val._otherSup) {
+      // Stamp ISO timestamp on submission if not already set
+      if (val.checked && !val.tsISO) val.tsISO = actualNow.toISOString();
+      myRealTasks[idx] = val;
+    }
   });
   const mergedTasks = Object.assign({}, ex.tasks || {}, myRealTasks);
-  const actualNow = new Date();
 
   const submittedBy = ex.submittedBy || {};
   const submittedByObj = (typeof submittedBy === 'object' && submittedBy !== null && !Array.isArray(submittedBy))
@@ -2449,7 +2533,11 @@ async function _doSubmitChecklist(tabKey, forceSubmit, ctx) {
       incompleteSubmit: forceSubmit || false,
     };
   }
-  const allClosingSupIds = ['portia','evans_o','ruth','evans_g','michael','patience','sarah'];
+  // Use dynamic users for closing all-done check
+  const _allU = await getAllUsers();
+  const allClosingSupIds = Object.entries(_allU)
+    .filter(([,u]) => (u.role === 'supervisor' || u.role === 'asst') && !u._deleted && (u.access||[]).includes('closing'))
+    .map(([id]) => id);
   const closingAllDone = section === 'closing'
     ? allClosingSupIds.every(id => !!submittedByObj[id])
     : true;
@@ -2468,7 +2556,11 @@ async function _doSubmitChecklist(tabKey, forceSubmit, ctx) {
     remarks: remEl?.value || '',
     incompleteSubmit: forceSubmit || false,
   });
-  await saveChecklist(today, tabKey, ex);
+  // Closing is a shared document — save to shared key (no userId scoping)
+  // Non-closing: each supervisor's submission is isolated by userId
+  const _saveKey = section === 'closing' ? 'closing' : tabKey;
+  const _saveUid = section === 'closing' ? null : currentUser.id;
+  await saveChecklist(today, _saveKey, ex, _saveUid);
   await renderChecklist(tabKey, 'sup', section);
   if (remEl) remEl.readOnly = true;
   const canvas = document.getElementById(`sigpad-${tabKey}-sup`);
@@ -2598,7 +2690,7 @@ async function mgrSubmitChecklist(section) {
     return;
   }
   showSyncOverlay(true);
-  const ex = (await loadChecklist(currentDate, section)) || {};
+  const ex = (await loadChecklist(currentDate, section, 'mgr')) || {};
   const remEl = document.getElementById(`mgr-remarks-${section}`);
   Object.assign(ex, {
     tasks: mgrState[section], submitted:true,
@@ -2608,7 +2700,7 @@ async function mgrSubmitChecklist(section) {
     signature: sigData,
     remarks: remEl?.value || ''
   });
-  await saveChecklist(currentDate, section, ex);
+  await saveChecklist(currentDate, section, ex, 'mgr');
   await renderChecklist(section, 'mgr');
   showSyncOverlay(false);
   showToast('✓ '+(cl[section]?.label||section)+' submitted!');
@@ -2801,7 +2893,8 @@ async function loadManagerView() {
   await renderRemarks();
   const cl = await loadMasterChecklists();
   for (const s of Object.keys(cl)) {
-    const saved = await loadChecklist(currentDate, s);
+    // Manager's own checklist edits are keyed under 'mgr'
+    const saved = await loadChecklist(currentDate, s, 'mgr');
     mgrState[s] = saved?.tasks || {};
     const dn = document.getElementById('mgr-'+s+'-sup-name'); if (dn) dn.value = currentUser.name;
     const dd = document.getElementById('mgr-'+s+'-date'); if (dd) dd.value = currentDate;
@@ -2813,6 +2906,52 @@ async function loadManagerView() {
   }
 }
 
+// ── Load checklist data for all supervisors of a section (aggregated for manager overview) ──
+async function loadChecklistAllUsers(date, section) {
+  // Returns an array of { userId, data } for every supervisor who has data for this section
+  const cl = await loadMasterChecklists();
+  const allUsers = await getAllUsers();
+  const def = cl[section];
+  // Build supervisor list from dynamic users (not the static hardcoded array)
+  const allSupIds = Object.entries(allUsers)
+    .filter(([,u]) => (u.role === 'supervisor' || u.role === 'asst') && !u._deleted)
+    .map(([id]) => id);
+  // Which supervisors are assigned to this section?
+  let candidates = [];
+  if (section === 'closing') {
+    candidates = allSupIds; // all supervisors can submit closing
+  } else if (def && Array.isArray(def.supervisors) && def.supervisors.length > 0) {
+    candidates = def.supervisors;
+  } else {
+    candidates = allSupIds;
+  }
+
+  const results = [];
+  for (const uid of candidates) {
+    // Try new per-user key first, then legacy shared key
+    let data = await loadChecklist(date, section, uid);
+    if (!data) {
+      // Also try split-tab keys (e.g. foh_cashier__morning, foh_cashier__afternoon)
+      for (const suffix of ['__morning','__afternoon','__closing']) {
+        const splitData = await loadChecklist(date, section + suffix, uid);
+        if (splitData) {
+          if (!data) data = {};
+          // Merge tasks from split tab into data
+          Object.assign(data, splitData);
+          data.tasks = Object.assign({}, data.tasks || {}, splitData.tasks || {});
+        }
+      }
+    }
+    if (data) results.push({ userId: uid, data });
+  }
+  // Also check the legacy shared key (for old data not yet migrated)
+  const legacy = await loadChecklist(date, section, null);
+  if (legacy && legacy.tasks && !results.find(r => r.userId === legacy.userId)) {
+    results.push({ userId: legacy.userId || 'unknown', data: legacy, isLegacy: true });
+  }
+  return results;
+}
+
 async function updateOverviewCards() {
   const cl = await loadMasterChecklists();
   const container = document.getElementById('overview-grid-container');
@@ -2821,66 +2960,240 @@ async function updateOverviewCards() {
   const ovKeys = { foh_cashier:'foh', foh_server:'foh2', boh:'boh', grill:'grill', closing:'close' };
 
   for (const [section, def] of Object.entries(cl)) {
-    const data = await loadChecklist(currentDate, section);
+    const allData = await loadChecklistAllUsers(currentDate, section);
     const cv = getColorVars(def.color);
     const ovCls = ovKeys[section] || section;
     const card = document.createElement('div');
     card.className = `ov-card ov-${ovCls}`;
+    card.style.cursor = 'pointer';
+    card.title = 'Click for full task breakdown';
     if (!cv.fill) card.style.setProperty('--ov-color', cv.main);
-    const total = getTasksFlatSync(cl, section).length;
-    let pct=0, subText='No data for this date', barW='0%', whoHTML='', lateHTML='', timeHTML='';
+    const totalTasks = getTasksFlatSync(cl, section).length;
 
-    if (data && data.tasks) {
-      const done = Object.values(data.tasks).filter(v => v.checked).length;
-      pct = Math.round(done/total*100);
-      barW = pct+'%';
-      const submittedTime = data.submittedTime || (data.submittedAt ? new Date(data.submittedAt).toTimeString().slice(0,5) : null);
-      timeHTML = submittedTime ? `<span style="font-size:11px;color:var(--muted);margin-left:4px">@ ${submittedTime}</span>` : '';
-      if (data.isLate) lateHTML = `<span class="late-badge">⏰ Late Submission</span>`;
-      subText = `${done} of ${total} tasks · ${data.submitted?'Submitted':'In Progress'}`;
-      whoHTML = `<span class="ov-chip${data.submitted?' done':''}">${data.userName||'Unknown'}${data.submitted?' ✓':' …'}</span>${timeHTML}${lateHTML}`;
-    }
+    // Aggregate across all supervisors who submitted
+    let totalDone = 0, totalChecked = 0, anySubmitted = false, anyLate = false;
+    let whoHTML = '', submittedTime = null;
 
-    // Per-supervisor breakdown for closing checklist
-    let supBreakdownHTML = '';
-    if (section === 'closing' && data && data.tasks) {
-      const owners = cl[section].closingOwners || {};
-      const ownerMap = {}; // userId → [cats]
-      Object.entries(owners).forEach(([cat, ids]) => {
-        ids.forEach(id => {
-          if (!ownerMap[id]) ownerMap[id] = [];
-          ownerMap[id].push(cat);
+    if (allData.length > 0) {
+      // Count unique checked tasks across all users
+      const aggregateTasks = {};
+      allData.forEach(({ data }) => {
+        Object.entries(data.tasks || {}).forEach(([idx, val]) => {
+          if (val.checked) aggregateTasks[idx] = val;
         });
       });
-      supBreakdownHTML = '<div style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px">';
-      for (const [uid, cats] of Object.entries(ownerMap)) {
-        const u = USERS[uid]; if (!u) continue;
-        let sDone=0, sTotal=0, gIdx=0;
-        cl[section].groups.forEach(g => {
-          g.tasks.forEach((_,ti) => {
-            if (cats.includes(g.cat)) { sTotal++; if (data.tasks[gIdx]?.checked) sDone++; }
-            gIdx++;
-          });
-        });
-        const sPct = sTotal ? Math.round(sDone/sTotal*100) : 0;
-        supBreakdownHTML += `<div style="display:flex;align-items:center;gap:6px;padding:3px 0;font-size:12px">
-          <span style="width:22px;height:22px;border-radius:50%;background:${u.role==='asst'?'var(--asst-color)':'var(--accent)'};color:white;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0">${u.initials}</span>
-          <span style="flex:1;color:var(--text)">${u.name.split(' ')[0]} — ${cats.join(', ')}</span>
-          <span style="font-weight:700;color:${sPct===100?'var(--accent)':'var(--accent2)'}">${sPct}%</span>
-        </div>`;
-      }
-      supBreakdownHTML += '</div>';
+      totalChecked = Object.values(aggregateTasks).filter(v => v.checked).length;
+      totalDone = totalChecked;
+
+      // Who chips
+      const chips = allData.map(({ userId, data }) => {
+        const u = USERS[userId] || { name: userId, initials: '?', role: 'supervisor' };
+        const submitted = section === 'closing'
+          ? (typeof data.submittedBy === 'object' && data.submittedBy?.[userId])
+          : !!data.submitted;
+        if (submitted) anySubmitted = true;
+        if (data.isLate) anyLate = true;
+        if (data.submittedTime && !submittedTime) submittedTime = data.submittedTime;
+        return `<span class="ov-chip${submitted?' done':''}" title="${u.name}">${u.initials}${submitted?' ✓':' …'}</span>`;
+      }).join('');
+      const timeHTML = submittedTime ? `<span style="font-size:11px;color:var(--muted);margin-left:4px">@ ${submittedTime}</span>` : '';
+      const lateHTML = anyLate ? `<span class="late-badge">⏰ Late</span>` : '';
+      whoHTML = chips + timeHTML + lateHTML;
     }
+
+    const pct = totalTasks ? Math.round(totalDone / totalTasks * 100) : 0;
+    const barW = pct + '%';
+    const subText = allData.length
+      ? `${totalDone} of ${totalTasks} tasks · ${anySubmitted ? 'Submitted' : 'In Progress'}`
+      : 'No data for this date';
 
     card.innerHTML = `
       <div class="ov-label">${def.label}</div>
-      <div class="ov-pct">${data?pct+'%':'—'}</div>
+      <div class="ov-pct">${allData.length ? pct+'%' : '—'}</div>
       <div class="ov-sub">${subText}</div>
       <div class="ov-bar"><div class="ov-bar-fill" style="width:${barW};${cv.fill?'':'background:'+cv.main}"></div></div>
       <div class="ov-who">${whoHTML}</div>
-      ${supBreakdownHTML}`;
+      <div style="margin-top:8px;font-size:11px;color:var(--accent);font-weight:600;opacity:.7">🔍 Click for task breakdown</div>`;
+
+    // Click handler — show detail popup
+    card.addEventListener('click', async () => {
+      const _au = await getAllUsers();
+      _showChecklistDetailPopup(section, def, allData, cl, currentDate, _au);
+    });
     container.appendChild(card);
   }
+}
+
+// ── Detail popup for manager overview cards ─────────────────────────────────
+function _showChecklistDetailPopup(section, def, allData, cl, displayDate, _passedAllUsers) {
+  const dateLabel = displayDate || currentDate;
+  const existing = document.getElementById('cl-detail-popup-overlay');
+  if (existing) existing.remove();
+
+  // Use passed allUsers (from async callers) or fall back to static USERS
+  const resolvedUsers = _passedAllUsers || (window._allUsersCache) || USERS;
+
+  const cv = getColorVars(def.color);
+  const color = cv.hex || cv.main;
+
+  let supRows = '';
+
+  if (!allData.length) {
+    supRows = `<div style="padding:24px;text-align:center;color:var(--muted);font-size:13px">No data recorded for this date.</div>`;
+  } else {
+    for (const { userId, data } of allData) {
+      const u = resolvedUsers[userId] || USERS[userId] || { name: userId, initials: '?', role: 'supervisor' };
+      const isSubmitted = section === 'closing'
+        ? (typeof data.submittedBy === 'object' && data.submittedBy?.[userId])
+        : !!data.submitted;
+      const submittedByObj = section === 'closing' && typeof data.submittedBy === 'object'
+        ? data.submittedBy?.[userId]
+        : null;
+
+      // Build per-supervisor remark
+      const supRemarks = submittedByObj?.remarks || data.remarks || '';
+      const remarksHTML = supRemarks
+        ? `<div style="margin:8px 0 0;background:#fdf6e3;border-left:3px solid var(--accent2);padding:8px 12px;border-radius:0 6px 6px 0;font-size:12px;color:#6b5a1f;line-height:1.5">
+            <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--accent2)">Remarks:</span><br>${supRemarks}
+           </div>`
+        : '';
+
+      // Build task rows
+      let taskHTML = '';
+      let gIdx = 0;
+      (cl[section]?.groups || []).forEach(group => {
+        // For closing, only show this user's categories
+        const isClosing = section === 'closing';
+        const userCats = isClosing ? (USERS[userId]?.closingSections || null) : null;
+        const showCat = !userCats || userCats.includes(group.cat);
+        if (!showCat) { gIdx += group.tasks.length; return; }
+        if (group.cat) {
+          taskHTML += `<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin:10px 0 4px">${group.cat}</div>`;
+        }
+        group.tasks.forEach(task => {
+          const t = data.tasks?.[gIdx] || { checked: false, initials: '' };
+          const chk = t.checked;
+          const initials = t.initials || '';
+          const tsDisplay = t.tsISO ? new Date(t.tsISO).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}) : (t.ts || '');
+          const initialsChip = initials ? `<span style="font-size:10px;font-weight:700;background:${color}22;color:${color};border-radius:4px;padding:2px 6px;margin-left:4px">${initials}</span>` : '';
+          const tsChip = tsDisplay ? `<span style="font-size:10px;color:var(--muted);margin-left:4px">${tsDisplay}</span>` : '';
+          taskHTML += `<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border)">
+            <span style="width:18px;height:18px;border-radius:4px;background:${chk?color:'transparent'};border:2px solid ${chk?color:'var(--border2)'};display:flex;align-items:center;justify-content:center;flex-shrink:0">
+              ${chk ? '<svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4L3.5 6.5L9 1" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>' : ''}
+            </span>
+            <span style="flex:1;font-size:12px;color:${chk?'var(--muted)':'var(--text)'};${chk?'text-decoration:line-through':''};line-height:1.4">${task}</span>
+            ${initialsChip}${tsChip}
+          </div>`;
+          gIdx++;
+        });
+      });
+
+      const isLate = submittedByObj?.isLate || data.isLate;
+      const submittedAt = submittedByObj?.time || data.submittedTime || '';
+      const shiftLeader = submittedByObj?.shiftLeader || data.shiftLeader || '';
+      const statusColor = isSubmitted ? (isLate ? 'var(--accent2)' : 'var(--accent)') : 'var(--muted)';
+      const statusText  = isSubmitted ? (isLate ? '⏰ Submitted Late' : '✓ Submitted') : '… In Progress / Not Started';
+
+      supRows += `
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;margin-bottom:14px;overflow:hidden">
+          <div style="display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--border);background:var(--surface2)">
+            <div style="width:34px;height:34px;border-radius:50%;background:${u.role==='asst'?'var(--asst-color)':'var(--accent)'};color:white;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">${u.initials}</div>
+            <div style="flex:1">
+              <div style="font-weight:700;font-size:14px">${u.name}</div>
+              <div style="font-size:11px;color:var(--muted)">${u.role==='asst'?'Asst. Supervisor':'Supervisor'}</div>
+            </div>
+            <div style="text-align:right">
+              <div style="font-size:12px;font-weight:700;color:${statusColor}">${statusText}</div>
+              ${submittedAt ? `<div style="font-size:11px;color:var(--muted)">at ${submittedAt}</div>` : ''}
+              ${shiftLeader ? `<div style="font-size:11px;color:var(--muted)">Leader: ${shiftLeader}</div>` : ''}
+            </div>
+          </div>
+          <div style="padding:14px 16px">
+            ${taskHTML || '<div style="color:var(--muted);font-size:12px">No tasks recorded</div>'}
+            ${remarksHTML}
+            ${(submittedByObj?.signature || data.signature) ? `<div style="margin-top:10px"><div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:4px">Signature</div><div style="border:1px solid var(--border);border-radius:6px;overflow:hidden;display:inline-block"><img src="${submittedByObj?.signature || data.signature}" style="display:block;height:52px;object-fit:contain" alt="Signature"></div></div>` : ''}
+          </div>
+        </div>`;
+    }
+  }
+
+  const overlay = document.createElement('div');
+  overlay.id = 'cl-detail-popup-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(28,26,23,.6);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px;box-sizing:border-box;animation:fadeIn .15s ease';
+  overlay.innerHTML = `
+    <div style="background:var(--bg);border-radius:18px;width:100%;max-width:660px;max-height:88vh;display:flex;flex-direction:column;box-shadow:var(--shadow-lg);overflow:hidden">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid var(--border);background:var(--surface);flex-shrink:0">
+        <div>
+          <div style="font-family:'Playfair Display',serif;font-size:18px;font-weight:700">${def.label} — Full Detail</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:2px">${formatDateNice(dateLabel)} · Every task, initials, timestamp &amp; remarks</div>
+        </div>
+        <button onclick="document.getElementById('cl-detail-popup-overlay').remove()"
+          style="background:none;border:1px solid var(--border);border-radius:8px;padding:7px 12px;cursor:pointer;font-size:13px;color:var(--muted);font-family:'Mulish',sans-serif;font-weight:600;transition:all .2s"
+          onmouseover="this.style.borderColor='var(--danger)';this.style.color='var(--danger)'"
+          onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">✕ Close</button>
+      </div>
+      <div style="overflow-y:auto;padding:20px 22px;flex:1">${supRows}</div>
+    </div>`;
+
+  // Close on backdrop click
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+  document.body.appendChild(overlay);
+}
+window._showChecklistDetailPopup = _showChecklistDetailPopup;
+
+// ── openChecklistDetailModal — called from supervisor summary stats ──────
+// Loads live data for a specific supervisor+section+date and shows the popup.
+async function openChecklistDetailModal(supervisorId, sectionKey, shiftWindowHint, date) {
+  const cl       = await loadMasterChecklists();
+  const allUsers = await getAllUsers();
+  const def      = cl[sectionKey];
+  if (!def) { showToast('Checklist not found.', true); return; }
+
+  let allData = [];
+  if (supervisorId) {
+    const u = allUsers[supervisorId];
+    if (!u) return;
+    // Try V7 per-user key, fall back to legacy
+    let data = await loadChecklist(date, sectionKey, supervisorId);
+    if (!data) {
+      for (const suffix of ['__morning','__afternoon','__closing']) {
+        const d = await loadChecklist(date, sectionKey + suffix, supervisorId);
+        if (d) { data = d; break; }
+      }
+    }
+    if (data) allData = [{ userId: supervisorId, data }];
+  } else {
+    allData = await loadChecklistAllUsers(date, sectionKey);
+  }
+  const _au = await getAllUsers();
+  _showChecklistDetailPopup(sectionKey, def, allData, cl, date, _au);
+}
+
+function closeDetailModal() {
+  document.getElementById('cl-detail-popup-overlay')?.remove();
+}
+
+// ── Closing checklist helper: count only this supervisor's categories ──────
+function _countClosingDoneForSup(cl, data, u) {
+  const allowedCats = getUserClosingSections(u);
+  if (!allowedCats) return Object.values(data.tasks||{}).filter(v=>v.checked).length;
+  let done = 0, gIdx = 0;
+  (cl.closing?.groups||[]).forEach(g => {
+    g.tasks.forEach(() => {
+      if (allowedCats.includes(g.cat) && data.tasks?.[gIdx]?.checked) done++;
+      gIdx++;
+    });
+  });
+  return done;
+}
+function _countClosingTotalForSup(cl, u) {
+  const allowedCats = getUserClosingSections(u);
+  if (!allowedCats) return getTasksFlatSync(cl, 'closing').length;
+  let total = 0;
+  (cl.closing?.groups||[]).forEach(g => {
+    if (allowedCats.includes(g.cat)) total += g.tasks.length;
+  });
+  return total;
 }
 
 async function buildSupSummary() {
@@ -2888,21 +3201,31 @@ async function buildSupSummary() {
   if (!container) return;
   container.innerHTML = '';
   const cl = await loadMasterChecklists();
-  const supIds = ['portia','evans_o','ruth','evans_g','michael','patience','sarah'];
+  const allUsers = await getAllUsers();
+  const supIds = Object.entries(allUsers)
+    .filter(([,u]) => (u.role==='supervisor'||u.role==='asst') && !u._deleted)
+    .map(([id]) => id);
+
   for (const id of supIds) {
-    const u = USERS[id];
+    const u = allUsers[id];
     const sections = await getUserSections({...u, id});
     let stats = [];
     for (const section of sections) {
-      const data = await loadChecklist(currentDate, section);
-      if (data && data.userId === id) {
-        const total = getTasksFlatSync(cl, section).length;
-        const done = Object.values(data.tasks||{}).filter(v => v.checked).length;
-        stats.push({section, pct:Math.round(done/total*100), submitted:data.submitted});
+      let data = await loadChecklist(currentDate, section, id);
+      if (!data) {
+        for (const suffix of ['__morning','__afternoon','__closing']) {
+          const d = await loadChecklist(currentDate, section + suffix, id);
+          if (d) { data = d; break; }
+        }
+      }
+      if (data) {
+        const done = section === 'closing' ? _countClosingDoneForSup(cl, data, u) : Object.values(data.tasks||{}).filter(v => v.checked && !v._otherSup).length;
+        const total = section === 'closing' ? _countClosingTotalForSup(cl, u) : getTasksFlatSync(cl, section).length;
+        stats.push({ section, pct: total ? Math.round(done/total*100) : 0, submitted: data.submitted, data });
       }
     }
     const statsHTML = stats.length
-      ? stats.map(s=>`<span><span class="sup-stat-dot" style="background:${s.submitted?'var(--accent)':'var(--accent2)'}"></span>${s.section.toUpperCase()} ${s.pct}%${s.submitted?' ✓':''}</span>`).join(' &nbsp; ')
+      ? stats.map(s=>`<span style="cursor:pointer;text-decoration:underline dotted" onclick="openChecklistDetailModal('${id}','${s.section}',null,'${currentDate}')"><span class="sup-stat-dot" style="background:${s.submitted?'var(--accent)':'var(--accent2)'}"></span>${s.section.toUpperCase()} ${s.pct}%${s.submitted?' ✓':''}</span>`).join(' &nbsp; ')
       : '<span style="color:var(--muted)">No activity recorded</span>';
     const roleChip = u.role==='asst'?'<span class="role-chip chip-asst">Asst. Supervisor</span>':'<span class="role-chip chip-supervisor">Supervisor</span>';
     const card = document.createElement('div');
@@ -2919,13 +3242,14 @@ async function initReportFilters() {
   const sel = document.getElementById('report-supervisor-filter');
   if (!sel) return;
   sel.innerHTML = '<option value="all">All Team Members</option>';
-  const supIds = ['portia','evans_o','ruth','evans_g','michael','patience','sarah'];
-  supIds.forEach(id => {
-    const u = USERS[id];
-    const opt = document.createElement('option');
-    opt.value = id; opt.textContent = u.name;
-    sel.appendChild(opt);
-  });
+  const allUsers = await getAllUsers();
+  Object.entries(allUsers)
+    .filter(([,u]) => (u.role==='supervisor'||u.role==='asst') && !u._deleted)
+    .forEach(([id, u]) => {
+      const opt = document.createElement('option');
+      opt.value = id; opt.textContent = u.name;
+      sel.appendChild(opt);
+    });
   // Default date range: last 7 days
   const today = getTodayStr();
   const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate()-6);
@@ -2955,56 +3279,96 @@ async function generateReport() {
   showSyncOverlay(true);
   const dates = getDatesInRange(from, to);
   const cl = await loadMasterChecklists();
-  const allSupIds = ['portia','evans_o','ruth','evans_g','michael','patience','sarah'];
+  const allUsersForReport = await getAllUsers();
+  const allSupIds = Object.entries(allUsersForReport)
+    .filter(([,u]) => (u.role==='supervisor'||u.role==='asst') && !u._deleted)
+    .map(([id]) => id);
   const supIds = supFilter === 'all' ? allSupIds : [supFilter];
 
   // Gather data
-  const reportData = {}; // supId → { name, sections: { sectionKey → [{ date, submitted, isLate, submittedTime, pct }] } }
+  const reportData = {}; // supId → { name, sections: { sectionKey → [{ date, submitted, isLate, submittedTime, pct, remarks, taskDetails }] } }
   for (const id of supIds) {
-    const u = USERS[id];
+    const u = allUsersForReport[id];
     const sections = await getUserSections({...u, id});
     reportData[id] = { name:u.name, initials:u.initials, role:u.role, sections:{} };
     for (const s of sections) {
       reportData[id].sections[s] = [];
       for (const date of dates) {
-        const data = await loadChecklist(date, s);
+        // Try per-user key first, then legacy
+        let data = await loadChecklist(date, s, id);
+        if (!data) {
+          for (const suffix of ['__morning','__afternoon','__closing']) {
+            const d = await loadChecklist(date, s + suffix, id);
+            if (d) { data = d; break; }
+          }
+        }
         const total = getTasksFlatSync(cl, s).length;
-        let pct = 0, submitted = false, isLate = false, submittedTime = null, shiftLeader = null;
+        let pct = 0, submitted = false, isLate = false, submittedTime = null, shiftLeader = null, remarks = '';
+        let taskDetails = []; // { cat, task, checked, initials }
+
         if (data && data.tasks) {
-          // For closing, only count this supervisor's sections
           let relevantDone = 0, relevantTotal = 0;
           if (s === 'closing') {
             const allowedCats = getUserClosingSections({...u, id});
             if (allowedCats) {
               let gIdx = 0;
               cl[s].groups.forEach(g => {
-                g.tasks.forEach(() => {
+                g.tasks.forEach((taskText) => {
                   if (allowedCats.includes(g.cat)) {
                     relevantTotal++;
-                    if (data.tasks[gIdx]?.checked) relevantDone++;
+                    const t = data.tasks[gIdx];
+                    if (t?.checked) relevantDone++;
+                    taskDetails.push({ cat: g.cat, task: taskText, checked: !!t?.checked, initials: t?.initials || '', tsISO: t?.tsISO || null, ts: t?.ts || null });
                   }
                   gIdx++;
                 });
               });
               pct = relevantTotal ? Math.round(relevantDone/relevantTotal*100) : 0;
             } else {
-              const done = Object.values(data.tasks).filter(v => v.checked).length;
-              pct = total ? Math.round(done/total*100) : 0;
+              let gIdx = 0;
+              cl[s].groups.forEach(g => {
+                g.tasks.forEach((taskText) => {
+                  const t = data.tasks[gIdx];
+                  if (t?.checked) relevantDone++;
+                  taskDetails.push({ cat: g.cat, task: taskText, checked: !!t?.checked, initials: t?.initials || '', tsISO: t?.tsISO || null, ts: t?.ts || null });
+                  gIdx++;
+                });
+              });
+              pct = total ? Math.round(relevantDone/total*100) : 0;
             }
           } else {
-            const done = Object.values(data.tasks).filter(v => v.checked).length;
-            pct = total ? Math.round(done/total*100) : 0;
+            let gIdx = 0;
+            cl[s].groups.forEach(g => {
+              g.tasks.forEach((taskText) => {
+                const t = data.tasks[gIdx];
+                if (t?.checked) relevantDone++;
+                taskDetails.push({ cat: g.cat, task: taskText, checked: !!t?.checked, initials: t?.initials || '', tsISO: t?.tsISO || null, ts: t?.ts || null });
+                gIdx++;
+              });
+            });
+            pct = total ? Math.round(relevantDone/total*100) : 0;
           }
           submitted = !!data.submitted;
           isLate = !!data.isLate;
           submittedTime = data.submittedTime || (data.submittedAt ? new Date(data.submittedAt).toTimeString().slice(0,5) : null);
           shiftLeader = data.shiftLeader || null;
+          remarks = data.remarks || '';
+          // For closing: also check per-user remarks in submittedBy
+          if (s === 'closing' && typeof data.submittedBy === 'object' && data.submittedBy?.[id]) {
+            remarks = data.submittedBy[id].remarks || remarks;
+            isLate = data.submittedBy[id].isLate ?? isLate;
+            submittedTime = data.submittedBy[id].time || submittedTime;
+            shiftLeader = data.submittedBy[id].shiftLeader || shiftLeader;
+            submitted = true;
+          }
         }
-        reportData[id].sections[s].push({ date, submitted, isLate, pct, submittedTime, shiftLeader, hasData: !!(data && data.tasks) });
+        reportData[id].sections[s].push({ date, submitted, isLate, pct, submittedTime, shiftLeader, hasData: !!(data && data.tasks), remarks, taskDetails });
       }
     }
   }
   showSyncOverlay(false);
+  window._lastReportData = reportData;
+  window._lastReportCL   = cl;
   renderReport(reportData, dates, cl, from, to);
 }
 
@@ -3012,28 +3376,30 @@ function renderReport(reportData, dates, cl, from, to) {
   const container = document.getElementById('report-output');
   if (!container) return;
 
-  // ── Summary cards per supervisor ───────────────────────────────────────
-  let html = `<div style="margin:24px 0 8px"><span style="font-family:'Playfair Display',serif;font-size:18px">Compliance Report</span>
-    <span style="font-size:12px;color:var(--muted);margin-left:12px">${formatDateNice(from)} → ${formatDateNice(to)}</span></div>`;
+  let html = `<div style="margin:24px 0 8px">
+    <span style="font-family:'Playfair Display',serif;font-size:22px">Shift Compliance Report</span>
+    <span style="font-size:12px;color:var(--muted);margin-left:12px">Generated ${new Date().toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',year:'numeric'})}</span>
+  </div>
+  <div style="font-size:13px;color:var(--muted);margin-bottom:16px">Period: ${formatDateNice(from)} → ${formatDateNice(to)}</div>`;
 
-  // Export buttons
-  html += `<div style="display:flex;gap:10px;margin-bottom:20px">
+  html += `<div style="display:flex;gap:10px;margin-bottom:22px;flex-wrap:wrap">
     <button class="submit-btn" style="padding:8px 18px;font-size:13px;background:#c0392b" onclick="exportReportPDF()">⬇ Download PDF</button>
-    <button class="submit-btn" style="padding:8px 18px;font-size:13px;background:#1a6b4a" onclick="exportReportExcel()">⬇ Download Excel</button>
+    <button class="submit-btn" style="padding:8px 18px;font-size:13px;background:#1a6b4a" onclick="exportReportExcel()">⬇ Download CSV</button>
+    <button class="submit-btn" style="padding:8px 18px;font-size:13px;background:#1a6b8a" onclick="exportReportGoogleSheets()">⬇ Export to Google Sheets</button>
   </div>`;
 
-  // Per-supervisor summary
   html += `<div id="report-content">`;
+
   for (const [id, sup] of Object.entries(reportData)) {
     const sections = Object.entries(sup.sections);
-    const totalExpected = sections.reduce((a,[,entries]) => a + entries.length, 0);
+    const totalExpected  = sections.reduce((a,[,entries]) => a + entries.length, 0);
     const totalSubmitted = sections.reduce((a,[,entries]) => a + entries.filter(e=>e.submitted).length, 0);
-    const totalLate = sections.reduce((a,[,entries]) => a + entries.filter(e=>e.isLate).length, 0);
-    const totalMissed = sections.reduce((a,[,entries]) => a + entries.filter(e=>!e.submitted).length, 0);
-    const compliancePct = totalExpected ? Math.round(totalSubmitted/totalExpected*100) : 0;
+    const totalLate      = sections.reduce((a,[,entries]) => a + entries.filter(e=>e.isLate).length, 0);
+    const totalMissed    = sections.reduce((a,[,entries]) => a + entries.filter(e=>!e.hasData).length, 0);
+    const compliancePct  = totalExpected ? Math.round(totalSubmitted/totalExpected*100) : 0;
     const compColor = compliancePct >= 90 ? 'var(--accent)' : compliancePct >= 70 ? 'var(--accent2)' : 'var(--danger)';
 
-    html += `<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:20px;margin-bottom:18px">
+    html += `<div data-sup="${sup.name}" style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:20px;margin-bottom:18px">
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap">
         <div style="width:38px;height:38px;border-radius:50%;background:${sup.role==='asst'?'var(--asst-color)':'var(--accent)'};color:white;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0">${sup.initials}</div>
         <div style="flex:1">
@@ -3056,46 +3422,98 @@ function renderReport(reportData, dates, cl, from, to) {
         </div>
         <div style="background:var(--danger-lt);border-radius:8px;padding:8px 14px;text-align:center;flex:1;min-width:80px">
           <div style="font-size:20px;font-weight:800;color:var(--danger)">${totalMissed}</div>
-          <div style="font-size:11px;color:var(--muted)">Missed</div>
+          <div style="font-size:11px;color:var(--muted)">Not Started</div>
         </div>
       </div>`;
 
-    // Drill-down table per section
+    // Per-section per-date drill-down
     for (const [sKey, entries] of sections) {
       const def = cl[sKey]; if (!def) continue;
-      html += `<div style="margin-top:12px">
-        <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:6px">${def.label}</div>
-        <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
-          <thead><tr style="background:var(--surface2)">
-            <th style="padding:6px 10px;text-align:left;border:1px solid var(--border)">Date</th>
-            <th style="padding:6px 10px;text-align:center;border:1px solid var(--border)">Status</th>
-            <th style="padding:6px 10px;text-align:center;border:1px solid var(--border)">Time</th>
-            <th style="padding:6px 10px;text-align:center;border:1px solid var(--border)">Completion</th>
-            <th style="padding:6px 10px;text-align:left;border:1px solid var(--border)">Shift Leader</th>
-          </tr></thead><tbody>`;
-      entries.forEach(e => {
-        const statusColor = e.submitted ? (e.isLate ? '#c8a84b' : '#2d5a3d') : (e.hasData ? '#e67e22' : '#999');
-        const statusText = e.submitted ? (e.isLate ? '⏰ Late' : '✓ On Time') : (e.hasData ? '… In Progress' : '— Not Started');
-        const timeText = e.submittedTime || '—';
-        html += `<tr>
-          <td style="padding:6px 10px;border:1px solid var(--border)">${formatDateNice(e.date).replace(/, \d{4}/,'')}</td>
-          <td style="padding:6px 10px;border:1px solid var(--border);text-align:center;color:${statusColor};font-weight:600">${statusText}</td>
-          <td style="padding:6px 10px;border:1px solid var(--border);text-align:center;color:var(--muted)">${timeText}</td>
-          <td style="padding:6px 10px;border:1px solid var(--border);text-align:center">${e.hasData?e.pct+'%':'—'}</td>
-          <td style="padding:6px 10px;border:1px solid var(--border);color:var(--muted)">${e.shiftLeader||'—'}</td>
-        </tr>`;
-      });
-      html += `</tbody></table></div></div>`;
+      const cv = getColorVars(def.color);
+      const sColor = cv.hex || cv.main;
+
+      html += `<div style="margin-top:14px">
+        <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:8px;display:flex;align-items:center;gap:8px">
+          <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${sColor}"></span>
+          ${def.label}
+        </div>`;
+
+      for (const e of entries) {
+        if (!e.hasData) {
+          html += `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px 16px;margin-bottom:8px">
+            <div style="display:flex;align-items:center;justify-content:space-between">
+              <span style="font-size:13px;font-weight:600">${formatDateNice(e.date)}</span>
+              <span style="font-size:12px;color:#999;font-weight:600">— Not Started</span>
+            </div>
+          </div>`;
+          continue;
+        }
+
+        const statusColor = e.submitted ? (e.isLate ? '#c8a84b' : '#2d5a3d') : '#e67e22';
+        const statusText  = e.submitted ? (e.isLate ? '⏰ Late' : '✓ On Time') : '… In Progress';
+
+        // Build task table with full per-task detail: initials + timestamp
+        let taskTableHTML = '';
+        if (e.taskDetails && e.taskDetails.length) {
+          taskTableHTML = `<div style="margin-top:10px;border-top:1px solid var(--border);padding-top:10px"><table style="width:100%;border-collapse:collapse;font-size:11px"><thead><tr style="background:var(--surface2)"><th style="padding:5px 8px;text-align:left;border:1px solid var(--border)">Task</th><th style="padding:5px 8px;text-align:center;border:1px solid var(--border);width:32px">✓</th><th style="padding:5px 8px;text-align:center;border:1px solid var(--border);width:48px">Initials</th><th style="padding:5px 8px;text-align:center;border:1px solid var(--border);width:58px">Timestamp</th></tr></thead><tbody>`;
+          let lastCat = null;
+          e.taskDetails.forEach(t => {
+            if (t.cat && t.cat !== lastCat) {
+              lastCat = t.cat;
+              taskTableHTML += `<tr><td colspan="4" style="padding:5px 8px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);background:var(--surface2);border:1px solid var(--border)">${t.cat}</td></tr>`;
+            }
+            const tsDisplay = t.tsISO ? new Date(t.tsISO).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}) : (t.ts||'—');
+            taskTableHTML += `<tr style="${t.checked?'background:#f8fdf9':''}"><td style="padding:5px 8px;border:1px solid var(--border);font-size:11px">${t.checked?'✓ ':''} ${t.task}</td><td style="padding:5px 8px;border:1px solid var(--border);text-align:center">${t.checked?'✓':'—'}</td><td style="padding:5px 8px;border:1px solid var(--border);text-align:center;font-family:monospace;font-weight:700">${t.initials||'—'}</td><td style="padding:5px 8px;border:1px solid var(--border);text-align:center;color:var(--muted)">${tsDisplay}</td></tr>`;
+          });
+          taskTableHTML += `</tbody></table></div>`;
+        }
+
+        // Remarks
+        const remarksHTML = e.remarks
+          ? `<div style="margin-top:10px;background:#fdf6e3;border-left:3px solid var(--accent2);padding:8px 12px;border-radius:0 6px 6px 0;font-size:12px;color:#6b5a1f;line-height:1.5">
+              <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--accent2)">Supervisor Remarks:</span><br>${e.remarks}
+             </div>`
+          : '';
+
+        // Signature
+        const sigHTML = e.signature
+          ? `<div style="margin-top:8px"><div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:4px">Signature</div><div style="border:1px solid var(--border);border-radius:6px;overflow:hidden;display:inline-block"><img src="${e.signature}" style="display:block;height:52px;object-fit:contain" alt="Signature"></div></div>`
+          : '';
+
+        const incompleteFlag = e.incompleteSubmit
+          ? `<span style="background:#fdf0ee;color:#c0392b;font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;border:1px solid #f5c6c0;margin-left:6px">Incomplete Submit</span>`
+          : '';
+
+        html += `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;margin-bottom:8px;overflow:hidden">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;cursor:pointer;user-select:none" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+              <span style="font-size:13px;font-weight:600">${formatDateNice(e.date)}</span>
+              ${e.shiftLeader ? `<span style="font-size:11px;color:var(--muted)">Leader: ${e.shiftLeader}</span>` : ''}
+              ${incompleteFlag}
+            </div>
+            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+              <span style="font-size:12px;font-weight:700;color:${statusColor}">${statusText}</span>
+              ${e.submittedTime ? `<span style="font-size:11px;color:var(--muted)">@ ${e.submittedTime}</span>` : ''}
+              <span style="font-size:13px;font-weight:800;color:${e.pct===100?'var(--accent)':e.pct>=70?'var(--accent2)':'var(--danger)'}">${e.pct}%</span>
+              <span style="font-size:11px;color:var(--muted)">▾ details</span>
+            </div>
+          </div>
+          <div style="display:none;padding:0 16px 14px">
+            ${taskTableHTML}
+            ${remarksHTML}
+            ${sigHTML}
+          </div>
+        </div>`;
+      }
+      html += `</div>`;
     }
     html += `</div>`;
   }
   html += `</div>`; // close report-content
 
-  // Remarks summary at bottom
   html += `<div id="report-remarks-section" style="margin-top:24px"></div>`;
   container.innerHTML = html;
 
-  // Load remarks for the range async
   loadRemarksForReport(getDatesInRange(from, to));
 }
 
@@ -3147,25 +3565,59 @@ function exportReportPDF() {
   setTimeout(() => w.print(), 800);
 }
 
-// ── Excel Export ───────────────────────────────────────────────────────────
+// ── CSV Export (full audit-quality) ────────────────────────────────────────
 function exportReportExcel() {
-  const rows = [['Supervisor','Section','Date','Status','Submission Time','Completion %','Shift Leader']];
-  // Parse from rendered table cells
-  document.querySelectorAll('#report-content table tbody tr').forEach(tr => {
-    const supervisor = tr.closest('[data-sup]')?.dataset.sup || '';
-    const tds = Array.from(tr.querySelectorAll('td')).map(td => td.textContent.trim());
-    if (tds.length) rows.push(tds);
+  const rows = [[
+    'Date','Supervisor','Role','Shift','Checklist','Status','Submitted At',
+    'Completion %','Shift Leader','Task #','Task Description','Completed','Initials','Timestamp','Supervisor Remarks','Incomplete Submit'
+  ]];
+  const reportData = window._lastReportData || {};
+  const cl         = window._lastReportCL   || {};
+  Object.entries(reportData).forEach(([id, sup]) => {
+    Object.entries(sup.sections).forEach(([sKey, entries]) => {
+      const def = cl[sKey];
+      entries.forEach(e => {
+        if (!e.hasData) {
+          rows.push([e.date, sup.name, sup.role==='asst'?'Asst. Supervisor':'Supervisor',
+            '', def?.label||sKey, 'Not Started','','','','','','','','',e.remarks||'','']);
+          return;
+        }
+        const statusText = e.submitted ? (e.isLate ? 'Late' : 'On Time') : 'In Progress';
+        if (!e.taskDetails || !e.taskDetails.length) {
+          rows.push([e.date, sup.name, sup.role==='asst'?'Asst. Supervisor':'Supervisor',
+            '', def?.label||sKey, statusText, e.submittedTime||'', e.pct+'%',
+            e.shiftLeader||'','','','','','',e.remarks||'', e.incompleteSubmit?'Yes':'No']);
+        } else {
+          e.taskDetails.forEach((t, ti) => {
+            const ts = t.tsISO ? new Date(t.tsISO).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}) : (t.ts||'');
+            rows.push([
+              e.date, sup.name, sup.role==='asst'?'Asst. Supervisor':'Supervisor',
+              '', def?.label||sKey, statusText, e.submittedTime||'', e.pct+'%',
+              e.shiftLeader||'', ti+1, t.task, t.checked?'Yes':'No',
+              t.initials||'', ts, ti===0?(e.remarks||''):'', ti===0?(e.incompleteSubmit?'Yes':'No'):''
+            ]);
+          });
+        }
+      });
+    });
   });
-  // Simple CSV approach (works without xlsx lib)
-  const csv = rows.map(r => r.map(c => '"'+String(c).replace(/"/g,'""')+'"').join(',')).join('\n');
-  const blob = new Blob([csv], {type:'text/csv'});
+  const esc = x => '"'+String(x||'').replace(/"/g,'""')+'"';
+  const csv = rows.map(r => r.map(esc).join(',')).join('\n');
+  const blob = new Blob(['\uFEFF'+csv], {type:'text/csv;charset=utf-8'});
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `shift_report_${getTodayStr()}.csv`;
+  a.download = `munchies_shift_report_${getTodayStr()}.csv`;
   a.click();
   URL.revokeObjectURL(a.href);
-  showToast('✓ Excel/CSV downloaded!', false, true);
+  showToast('\u2713 Full CSV downloaded!', false, true);
 }
+
+// ── Google Sheets Export ────────────────────────────────────────────────────
+function exportReportGoogleSheets() {
+  exportReportExcel();
+  showToast('\ud83d\udca1 Open Google Sheets \u2192 File \u2192 Import \u2192 Upload the CSV', false, true);
+}
+
 
 // ════════════════════════════════
 // SHIFT SCHEDULE MANAGEMENT UI
@@ -4151,8 +4603,10 @@ async function checkAlerts() {
         const yesterday = new Date(now); yesterday.setDate(yesterday.getDate()-1);
         checkDate = yesterday.toISOString().split('T')[0];
       }
-      const data = await loadChecklist(checkDate, section);
-      if (!data || !data.submitted) {
+      // For alert checks, use legacy/shared key as a quick heuristic
+      // (full per-supervisor check would require knowing who is scheduled)
+      const _alertData = await loadChecklist(checkDate, section, null);
+      if (!_alertData || !_alertData.submitted) {
         unsubmitted.push(cl[section]?.label || section);
       }
     }
@@ -4500,6 +4954,13 @@ window.sendWhatsAppAlert   = sendWhatsAppAlert;
 window.dismissAlert        = dismissAlert;
 window._retryBackendConnection   = _retryBackendConnection;
 window._ensureSupabaseTable      = _ensureSupabaseTable;
+window.loadChecklistAllUsers       = loadChecklistAllUsers;
+window.openChecklistDetailModal    = openChecklistDetailModal;
+window.closeDetailModal            = closeDetailModal;
+window.openMigrationModal          = openMigrationModal;
+window._runMigrationUI             = _runMigrationUI;
+window.runDataMigration            = runDataMigration;
+window.exportReportGoogleSheets    = exportReportGoogleSheets;
 
 // ════════════════════════════════
 // SHIFT TIME INDICATOR
@@ -4553,6 +5014,148 @@ function _updateShiftIndicator() {
       Outside shift hours &nbsp;·&nbsp; ${nextWindowLabel()}
     </span>`;
   }
+}
+
+// ════════════════════════════════
+// DATA MIGRATION ENGINE (V6 → V7)
+// ════════════════════════════════
+// Scans all known V6 keys (shift_cl:{date}:{section}) for records that have
+// a userId field, then re-saves them to the V7 per-user key
+// (shift_cl:{date}:{section}:{userId}). Safe to run multiple times —
+// records with a V7 key that already exists are skipped.
+// Full summary (migrated / skipped / unattributed / inconsistencies) is
+// written to Supabase under migrationLog key for audit purposes.
+
+const MIGRATION_SCAN_FROM = '2025-01-01'; // scan from this date forward
+
+async function runDataMigration() {
+  const log = {
+    startedAt: new Date().toISOString(),
+    migrated: 0,
+    skipped: 0,
+    unattributed: 0,
+    inconsistencies: [],
+    records: []
+  };
+
+  const cl       = await loadMasterChecklists();
+  const sections = Object.keys(cl);
+  const dates    = getDatesInRange(MIGRATION_SCAN_FROM, getTodayStr());
+
+  for (const date of dates) {
+    for (const section of sections) {
+      // Read V6 shared key
+      let legacy = null;
+      try { legacy = await cloudGet(STORAGE_KEYS.checklistLegacy(date, section)); } catch(_) {}
+      if (!legacy || !legacy.tasks) continue;
+
+      const uid = legacy.userId;
+      if (!uid) {
+        log.unattributed++;
+        log.inconsistencies.push({ date, section, issue: 'No userId — cannot attribute' });
+        continue;
+      }
+
+      // V7 key
+      const v7key = STORAGE_KEYS.checklist(date, section, uid);
+      let existing = null;
+      try { existing = await cloudGet(v7key); } catch(_) {}
+      if (existing) {
+        log.skipped++;
+        log.records.push({ date, section, uid, status: 'skipped — V7 already exists' });
+        continue;
+      }
+
+      // Validate supervisor against expected list for this section
+      const expectedSups = cl[section]?.supervisors;
+      if (expectedSups && expectedSups.length && !expectedSups.includes(uid)) {
+        log.inconsistencies.push({ date, section, uid, issue: 'userId not in expected supervisors' });
+      }
+
+      // Write V7
+      const migratedData = { ...legacy, _migrated: true, _migratedAt: new Date().toISOString() };
+      try {
+        await cloudSet(v7key, migratedData);
+        log.migrated++;
+        log.records.push({ date, section, uid, status: 'migrated' });
+      } catch(e) {
+        log.inconsistencies.push({ date, section, uid, issue: 'Write failed: ' + e.message });
+      }
+    }
+  }
+
+  log.completedAt = new Date().toISOString();
+  try { await cloudSet(STORAGE_KEYS.migrationLog, log); } catch(_) {}
+  return log;
+}
+
+async function openMigrationModal() {
+  const existing = document.getElementById('migration-modal');
+  if (existing) existing.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'migration-modal';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(28,26,23,.65);z-index:9500;display:flex;align-items:center;justify-content:center;font-family:Mulish,sans-serif;padding:16px;box-sizing:border-box';
+  overlay.innerHTML = `
+    <div style="background:var(--surface);border-radius:18px;padding:32px 36px;max-width:540px;width:100%;box-shadow:0 16px 56px rgba(0,0,0,.22)">
+      <div style="font-family:'Playfair Display',serif;font-size:20px;font-weight:700;margin-bottom:6px">Data Migration — V6 → V7</div>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:20px;line-height:1.6">
+        Scans all historical checklist records from ${MIGRATION_SCAN_FROM} to today and migrates
+        them to the new per-supervisor storage format. Existing V7 records are left untouched.
+        Original V6 records are preserved. Safe to run multiple times.
+      </div>
+      <div id="migration-status" style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px;font-size:13px;min-height:60px;margin-bottom:16px;color:var(--muted)">
+        Click "Run Migration" to begin…
+      </div>
+      <div style="display:flex;gap:10px;justify-content:flex-end">
+        <button onclick="document.getElementById('migration-modal').remove()"
+          style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:9px 18px;cursor:pointer;font-family:'Mulish',sans-serif;font-size:13px;font-weight:600">
+          Close
+        </button>
+        <button id="migration-run-btn" onclick="_runMigrationUI()"
+          style="background:var(--accent);color:white;border:none;border-radius:8px;padding:9px 22px;cursor:pointer;font-family:'Mulish',sans-serif;font-size:13px;font-weight:700">
+          ▶ Run Migration
+        </button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+}
+
+async function _runMigrationUI() {
+  const btn    = document.getElementById('migration-run-btn');
+  const status = document.getElementById('migration-status');
+  if (btn) btn.disabled = true;
+  if (status) status.innerHTML = '<span style="color:var(--accent)">⏳ Scanning all historical records…</span>';
+  try {
+    const log = await runDataMigration();
+    const issues = log.inconsistencies.length;
+    const issueHTML = issues ? `
+      <div style="margin-top:10px;background:var(--danger-lt);border:1px solid #f5c6c0;border-radius:8px;padding:10px;font-size:12px">
+        <strong style="color:var(--danger)">${issues} inconsistenc${issues===1?'y':'ies'} detected:</strong>
+        ${log.inconsistencies.map(i=>`<div style="margin-top:4px;color:var(--muted)">${i.date}/${i.section}/${i.uid||'?'}: ${i.issue}</div>`).join('')}
+      </div>` : '';
+    if (status) status.innerHTML = `
+      <div style="color:var(--accent);font-weight:700;margin-bottom:8px">✅ Migration Complete</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px">
+        <div style="background:var(--accent-lt);border-radius:8px;padding:8px;text-align:center">
+          <div style="font-size:22px;font-weight:800;color:var(--accent)">${log.migrated}</div>
+          <div style="font-size:11px;color:var(--muted)">Migrated</div>
+        </div>
+        <div style="background:#f5f3ef;border-radius:8px;padding:8px;text-align:center">
+          <div style="font-size:22px;font-weight:800;color:var(--muted)">${log.skipped}</div>
+          <div style="font-size:11px;color:var(--muted)">Skipped</div>
+        </div>
+        <div style="background:var(--danger-lt);border-radius:8px;padding:8px;text-align:center">
+          <div style="font-size:22px;font-weight:800;color:var(--danger)">${log.unattributed}</div>
+          <div style="font-size:11px;color:var(--muted)">Unattributed</div>
+        </div>
+      </div>
+      <div style="font-size:12px;color:var(--muted)">Started: ${new Date(log.startedAt).toLocaleString('en-GB')}<br>Completed: ${new Date(log.completedAt).toLocaleString('en-GB')}</div>
+      ${issueHTML}`;
+  } catch(e) {
+    if (status) status.innerHTML = `<span style="color:var(--danger)">❌ Migration failed: ${e.message}</span>`;
+  }
+  if (btn) { btn.disabled = false; btn.textContent = '↺ Run Again'; }
 }
 
 // ── Boot sequence ────────────────────────────────────────────────────────
