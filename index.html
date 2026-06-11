@@ -678,6 +678,7 @@ body{background:var(--bg);color:var(--text);font-family:'Mulish',sans-serif;min-
         <div style="width:1px;height:36px;background:var(--border)"></div>
         <div class="cosign-summary-stat"><div class="num" id="cosign-stat-mgr-done" style="color:var(--accent)">—</div><div class="lbl">Mgr Approved</div></div>
         <div style="flex:1"></div>
+        <div id="cosign-all-signed-badge" style="display:none;background:var(--accent-lt);color:var(--accent);border:1px solid #b8d4be;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:700">✓ All stations signed — manager approval unlocked</div>
         <div class="cosign-export-bar" style="margin-top:0">
           <button class="submit-btn" style="padding:8px 16px;font-size:12px;background:#c0392b" onclick="exportCosignPDF()">⬇ Download PDF</button>
           <button class="submit-btn" style="padding:8px 16px;font-size:12px;background:#1a6b4a" onclick="exportCosignCSV()">⬇ Download CSV</button>
@@ -687,6 +688,8 @@ body{background:var(--bg);color:var(--text);font-family:'Mulish',sans-serif;min-
       <div class="cosign-stations" id="cosign-stations-container">
         <div style="text-align:center;padding:40px;color:var(--muted)">Loading sign-off data…</div>
       </div>
+      <!-- Manager single final approval panel — rendered dynamically below stations -->
+      <div id="cosign-mgr-panel" style="margin-top:24px"></div>
     </div>
 
     <!-- ALERTS SETTINGS (in Overview, Richmond-only config panel) -->
@@ -5005,8 +5008,18 @@ function showToast(msg,isError=false,isGold=false) {
 // CLOSING SIGN-OFF — Manager-only station-by-station sign-off module
 // ════════════════════════════════════════════════════════════════════
 
-const COSIGN_KEY = (date, station) =>
-  `cosign:${date}:${station.toLowerCase().replace(/\s+/g,'_')}`;
+// ════════════════════════════════════════════════════════════════════
+// CLOSING SIGN-OFF — Redesigned: per-station supervisor sign-offs,
+// then ONE single manager approval covering all stations at once.
+//
+// Storage model (single key per date):
+//   cosign:{date}  →  {
+//     supSigns: { stationName → { userId, userName, remarks, signature, signedAt } },
+//     mgrSign:  { userId, userName, remarks, signature, signedAt }   // null until all sups signed
+//   }
+// ════════════════════════════════════════════════════════════════════
+
+const COSIGN_DATE_KEY = (date) => `cosign:${date}`;
 
 function getCosignStations() {
   const emo = { 'Front Area':'🪑','Serving Area':'🍽️','Storeroom':'📦','Kitchen':'🍳','Grill Station':'🔥','All Stations':'🏠' };
@@ -5021,14 +5034,16 @@ function getCosignStations() {
   return Object.entries(owners).map(([name, ids]) => ({ stationName:name, supervisorIds:ids, emoji: emo[name]||'📋' }));
 }
 
-async function loadCosignRecord(date, station) {
-  const raw = await cloudGet(COSIGN_KEY(date, station));
-  return raw || { supSign:null, mgrSign:null };
+// ── Single-key load/save for whole date ──────────────────────────
+async function loadCosignDoc(date) {
+  const raw = await cloudGet(COSIGN_DATE_KEY(date));
+  return raw || { supSigns:{}, mgrSign:null };
 }
-async function saveCosignRecord(date, station, rec) {
-  await cloudSet(COSIGN_KEY(date, station), rec);
+async function saveCosignDoc(date, doc) {
+  await cloudSet(COSIGN_DATE_KEY(date), doc);
 }
 
+// ── Date navigation ──────────────────────────────────────────────
 let _cosignDate = null;
 function navigateCosignDate(dir) {
   const d = new Date(_cosignDate || getTodayStr());
@@ -5039,51 +5054,68 @@ function navigateCosignDate(dir) {
   loadCosignView();
 }
 
+// ── Main render ──────────────────────────────────────────────────
 async function loadCosignView() {
   const picker = document.getElementById('cosign-date-picker');
-  _cosignDate = picker?.value || getTodayStr();
-  const date = _cosignDate;
-  const container = document.getElementById('cosign-stations-container');
+  _cosignDate  = picker?.value || getTodayStr();
+  const date   = _cosignDate;
+
+  const container  = document.getElementById('cosign-stations-container');
+  const mgrPanel   = document.getElementById('cosign-mgr-panel');
   if (!container) return;
   container.innerHTML = '<div style="text-align:center;padding:40px;color:var(--muted)">Loading…</div>';
+  if (mgrPanel) mgrPanel.innerHTML = '';
 
-  const allUsers = await getAllUsers();
-  const cl = await loadMasterChecklists();
+  const allUsers    = await getAllUsers();
+  const cl          = await loadMasterChecklists();
   window._masterChecklistsCacheLocal = cl;
 
-  const stations = getCosignStations();
+  const stations    = getCosignStations();
   const closingData = (await loadChecklist(date,'closing',null)) || { tasks:{} };
+  const doc         = await loadCosignDoc(date);
 
-  let supDoneCount=0, mgrDoneCount=0;
-  const stationRecords = [];
-  for (const s of stations) {
-    const rec = await loadCosignRecord(date, s.stationName);
-    stationRecords.push({...s, rec});
-    if (rec.supSign) supDoneCount++;
-    if (rec.mgrSign) mgrDoneCount++;
-  }
-  const sBar = document.getElementById('cosign-stat-stations');
-  const sBars = document.getElementById('cosign-stat-sup-done');
-  const sBarm = document.getElementById('cosign-stat-mgr-done');
-  if (sBar) sBar.textContent = stations.length;
-  if (sBars) sBars.textContent = supDoneCount;
-  if (sBarm) sBarm.textContent = mgrDoneCount;
+  // Count signed stations
+  const supSignedCount  = stations.filter(s => !!doc.supSigns?.[s.stationName]).length;
+  const allSupSigned    = supSignedCount === stations.length;
+  const isMgrSigned     = !!doc.mgrSign;
 
+  // Update summary bar
+  const elStations = document.getElementById('cosign-stat-stations');
+  const elSupDone  = document.getElementById('cosign-stat-sup-done');
+  const elMgrDone  = document.getElementById('cosign-stat-mgr-done');
+  const elBadge    = document.getElementById('cosign-all-signed-badge');
+  if (elStations) elStations.textContent = stations.length;
+  if (elSupDone)  elSupDone.textContent  = `${supSignedCount}/${stations.length}`;
+  if (elMgrDone)  elMgrDone.textContent  = isMgrSigned ? '✓' : '—';
+  if (elBadge)    elBadge.style.display  = (allSupSigned && !isMgrSigned) ? '' : 'none';
+
+  // Render station cards
   container.innerHTML = '';
-  stationRecords.forEach((s, idx) => {
-    container.appendChild(buildCosignStationCard(s, idx, closingData, cl, allUsers, date));
+  stations.forEach((s, idx) => {
+    container.appendChild(buildCosignStationCard(s, idx, doc, closingData, cl, allUsers, date));
   });
+
+  // Render manager approval panel
+  if (mgrPanel) {
+    mgrPanel.innerHTML = '';
+    mgrPanel.appendChild(buildMgrApprovalPanel(doc, allSupSigned, stations, date));
+    // Init canvas if already open
+    setTimeout(() => initCosignCanvas('mgr', 'final'), 80);
+  }
 }
 
-function buildCosignStationCard(s, idx, closingData, cl, allUsers, date) {
-  const { stationName, supervisorIds, emoji, rec } = s;
-  const isSupDone = !!rec.supSign, isMgrDone = !!rec.mgrSign;
-  const statusClass = isMgrDone ? 'mgr-done' : (isSupDone ? 'sup-done' : 'pending');
-  const statusText  = isMgrDone ? '✓ Manager Approved' : (isSupDone ? '✓ Sup Signed' : 'Pending');
-  const supNames    = supervisorIds.map(id => allUsers[id]?.name?.split(' ')[0] || id).join(' / ');
+// ── Station card (supervisor sign-off only) ──────────────────────
+function buildCosignStationCard(s, idx, doc, closingData, cl, allUsers, date) {
+  const { stationName, supervisorIds, emoji } = s;
+  const supSign     = doc.supSigns?.[stationName] || null;
+  const isSupDone   = !!supSign;
   const stationSlug = stationName.toLowerCase().replace(/\s+/g,'_');
+  const supNames    = supervisorIds.map(id => allUsers[id]?.name?.split(' ')[0] || id).join(' / ');
 
-  // Task rows
+  const statusClass = isSupDone ? 'sup-done' : 'pending';
+  const statusText  = isSupDone ? '✓ Signed' : 'Pending';
+
+  // Task rows for this station
   let taskRowsHTML = '', gIdx = 0;
   (cl.closing?.groups||[]).forEach(g => {
     g.tasks.forEach(task => {
@@ -5105,34 +5137,20 @@ function buildCosignStationCard(s, idx, closingData, cl, allUsers, date) {
   // Supervisor sign block
   const supBlockHTML = isSupDone
     ? `<div class="cosign-signed-display">
-        <div class="cosign-signed-meta"><strong>${rec.supSign.userName}</strong> — ${new Date(rec.supSign.signedAt).toLocaleString('en-GB')}</div>
-        ${rec.supSign.remarks?`<div class="cosign-signed-remarks">💬 ${rec.supSign.remarks}</div>`:''}
-        ${rec.supSign.signature?`<img class="cosign-signed-img" src="${rec.supSign.signature}" alt="sig">`:''}
+        <div class="cosign-signed-meta"><strong>${supSign.userName}</strong> — ${new Date(supSign.signedAt).toLocaleString('en-GB')}</div>
+        ${supSign.remarks?`<div class="cosign-signed-remarks">💬 ${supSign.remarks}</div>`:''}
+        ${supSign.signature?`<img class="cosign-signed-img" src="${supSign.signature}" alt="Supervisor signature">`:''}
       </div>`
-    : `<textarea class="cosign-remarks-field" id="cosign-sup-remarks-${stationSlug}" placeholder="Supervisor remarks for ${stationName} (optional)…" rows="2"></textarea>
-       <div class="cosign-canvas-wrap"><canvas class="cosign-canvas" id="cosign-sup-canvas-${stationSlug}" width="600" height="110"></canvas>
-       <div class="cosign-canvas-label" id="cosign-sup-canvas-label-${stationSlug}">Sign here</div></div>
+    : `<textarea class="cosign-remarks-field" id="cosign-sup-remarks-${stationSlug}"
+         placeholder="Remarks for ${stationName} (optional)…" rows="2"></textarea>
+       <div class="cosign-canvas-wrap">
+         <canvas class="cosign-canvas" id="cosign-sup-canvas-${stationSlug}" width="600" height="110"></canvas>
+         <div class="cosign-canvas-label" id="cosign-sup-canvas-label-${stationSlug}">Sign here</div>
+       </div>
        <div class="cosign-sig-actions">
          <button class="cosign-sig-clear" onclick="clearCosignCanvas('sup','${stationSlug}')">Clear</button>
          <span style="font-size:11px;color:var(--muted);flex:1">Draw your signature above</span>
-         <button class="cosign-sign-btn sup" onclick="submitCosignSup('${stationName}','${stationSlug}','${date}')">✍ Sign Off Station</button>
-       </div>`;
-
-  // Manager sign block
-  const mgrBlockHTML = isMgrDone
-    ? `<div class="cosign-signed-display" style="background:var(--accent-lt)">
-        <div class="cosign-signed-meta"><strong>${rec.mgrSign.userName}</strong> — ${new Date(rec.mgrSign.signedAt).toLocaleString('en-GB')}</div>
-        ${rec.mgrSign.remarks?`<div class="cosign-signed-remarks">💬 ${rec.mgrSign.remarks}</div>`:''}
-        ${rec.mgrSign.signature?`<img class="cosign-signed-img" src="${rec.mgrSign.signature}" alt="sig">`:''}
-      </div>`
-    : `${!isSupDone?`<div style="font-size:12px;color:var(--muted);margin-bottom:10px;padding:8px 12px;background:#fdf6e3;border:1px solid #e8d48a;border-radius:8px">⏳ Waiting for supervisor sign-off.</div>`:''}
-       <textarea class="cosign-remarks-field" id="cosign-mgr-remarks-${stationSlug}" placeholder="Manager remarks for ${stationName} (optional)…" rows="2" ${!isSupDone?'disabled':''}></textarea>
-       <div class="cosign-canvas-wrap"><canvas class="cosign-canvas" id="cosign-mgr-canvas-${stationSlug}" width="600" height="110"></canvas>
-       <div class="cosign-canvas-label" id="cosign-mgr-canvas-label-${stationSlug}">Sign here</div></div>
-       <div class="cosign-sig-actions">
-         <button class="cosign-sig-clear" onclick="clearCosignCanvas('mgr','${stationSlug}')" ${!isSupDone?'disabled':''}>Clear</button>
-         <span style="font-size:11px;color:var(--muted);flex:1">Draw your signature above</span>
-         <button class="cosign-sign-btn mgr" onclick="submitCosignMgr('${stationName}','${stationSlug}','${date}')" ${!isSupDone?'disabled':''}>✅ Approve &amp; Sign</button>
+         <button class="cosign-sign-btn sup" onclick="submitCosignSup('${stationName}','${stationSlug}','${date}')">✍ Sign Off</button>
        </div>`;
 
   const card = document.createElement('div');
@@ -5149,21 +5167,115 @@ function buildCosignStationCard(s, idx, closingData, cl, allUsers, date) {
       <span class="cosign-station-chevron">▾</span>
     </div>
     <div class="cosign-station-body">
-      ${taskRowsHTML?`<div class="cosign-tasks-area"><div style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:8px">Tasks Completed</div>${taskRowsHTML}</div>`:''}
+      ${taskRowsHTML?`<div class="cosign-tasks-area">
+        <div style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:8px">Tasks Completed</div>
+        ${taskRowsHTML}
+      </div>`:''}
       <div class="cosign-sign-block">
         <div class="cosign-sign-label">
           <span>👤 Supervisor Sign-Off</span>
-          <span class="badge" style="font-size:10px;padding:2px 8px;border-radius:20px;background:${isSupDone?'var(--foh2-lt)':'var(--surface2)'};color:${isSupDone?'var(--foh2-color)':'var(--muted)'}">${isSupDone?'✓ Signed':'Required'}</span>
+          <span style="font-size:10px;padding:2px 8px;border-radius:20px;background:${isSupDone?'var(--foh2-lt)':'var(--surface2)'};color:${isSupDone?'var(--foh2-color)':'var(--muted)'}">
+            ${isSupDone?'✓ Signed':'Required'}
+          </span>
         </div>
         ${supBlockHTML}
       </div>
-      <div class="cosign-divider"></div>
-      <div class="cosign-final-block">
-        <div class="cosign-final-label">🔐 Manager Final Approval</div>
-        ${mgrBlockHTML}
-      </div>
     </div>`;
   return card;
+}
+
+// ── Manager single approval panel (rendered below all stations) ──
+function buildMgrApprovalPanel(doc, allSupSigned, stations, date) {
+  const isMgrSigned = !!doc.mgrSign;
+  const wrapper     = document.createElement('div');
+  wrapper.style.cssText = 'background:var(--surface);border:2px solid ' + (isMgrSigned?'var(--accent)':'var(--border)') + ';border-radius:16px;overflow:hidden;box-shadow:var(--shadow)';
+
+  // Header
+  const allSignedCount = stations.filter(s => !!doc.supSigns?.[s.stationName]).length;
+  const progress = `${allSignedCount}/${stations.length} stations signed`;
+
+  let headerHTML = `<div style="padding:16px 20px;background:${isMgrSigned?'var(--accent-lt)':'var(--surface2)'};border-bottom:1.5px solid var(--border);display:flex;align-items:center;gap:14px">
+    <div style="width:40px;height:40px;border-radius:12px;background:${isMgrSigned?'var(--accent)':'#ccc'};display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">🔐</div>
+    <div style="flex:1">
+      <div style="font-family:'Playfair Display',serif;font-size:16px;font-weight:700">Manager Final Approval</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:2px">
+        ${isMgrSigned
+          ? `Approved by <strong>${doc.mgrSign.userName}</strong> at ${new Date(doc.mgrSign.signedAt).toLocaleString('en-GB')}`
+          : `Covers all stations · ${progress}`}
+      </div>
+    </div>
+    <span style="font-size:12px;font-weight:700;padding:4px 12px;border-radius:20px;background:${isMgrSigned?'var(--accent)':'(allSupSigned?\'var(--foh2-lt)\':\'var(--surface)\')'};color:${isMgrSigned?'white':'var(--muted)'}">
+      ${isMgrSigned ? '✓ Approved' : (allSupSigned ? 'Ready to Approve' : 'Waiting for Supervisors')}
+    </span>
+  </div>`;
+
+  // If already approved — show read-only signed summary
+  if (isMgrSigned) {
+    wrapper.innerHTML = headerHTML + `
+      <div style="padding:20px">
+        <div style="background:var(--accent-lt);border:1px solid #b8d4be;border-radius:10px;padding:14px 16px">
+          <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--accent);margin-bottom:8px">Manager Approval</div>
+          <div style="font-size:13px;font-weight:700;margin-bottom:2px">${doc.mgrSign.userName}</div>
+          <div style="font-size:11px;color:var(--muted);margin-bottom:${doc.mgrSign.remarks?'8px':'0'}">${new Date(doc.mgrSign.signedAt).toLocaleString('en-GB')}</div>
+          ${doc.mgrSign.remarks?`<div style="font-size:13px;line-height:1.6;color:var(--text);white-space:pre-wrap">💬 ${doc.mgrSign.remarks}</div>`:''}
+          ${doc.mgrSign.signature?`<img src="${doc.mgrSign.signature}" style="max-height:70px;border:1px solid var(--border);border-radius:8px;display:block;margin-top:12px;background:#fff" alt="Manager signature">`:''}
+        </div>
+      </div>`;
+    return wrapper;
+  }
+
+  // Not yet approved — show input form, locked if not all sups signed
+  const locked  = !allSupSigned;
+  const lockMsg = locked
+    ? `<div style="padding:14px 20px;background:#fdf6e3;border-bottom:1px solid #e8d48a;display:flex;align-items:center;gap:10px">
+        <span style="font-size:18px">⏳</span>
+        <div>
+          <div style="font-size:13px;font-weight:700;color:#9a7d1a">Waiting for all supervisors to sign off</div>
+          <div style="font-size:12px;color:#9a7d1a;margin-top:2px">${progress} — all ${stations.length} stations must be signed before you can approve.</div>
+        </div>
+      </div>` : '';
+
+  // Show per-station supervisor sign summary (read-only) so manager can review all at a glance
+  let stationSummaryHTML = '<div style="padding:16px 20px;border-bottom:1px solid var(--border)">';
+  stationSummaryHTML += '<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:12px">Supervisor Sign-Offs</div>';
+  stationSummaryHTML += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px">';
+  stations.forEach(s => {
+    const sign = doc.supSigns?.[s.stationName];
+    stationSummaryHTML += `<div style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;background:${sign?'var(--surface2)':'#fff8f0'}">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:${sign&&sign.remarks?'6px':'0'}">
+        <span style="font-size:14px">${s.emoji}</span>
+        <span style="font-size:12px;font-weight:700;flex:1">${s.stationName}</span>
+        ${sign
+          ? `<span style="font-size:10px;color:var(--foh2-color);font-weight:700">✓ ${sign.userName.split(' ')[0]}</span>`
+          : `<span style="font-size:10px;color:#e67e22;font-weight:700">Pending</span>`}
+      </div>
+      ${sign&&sign.remarks?`<div style="font-size:11px;color:var(--muted);font-style:italic;line-height:1.4">"${sign.remarks}"</div>`:''}
+      ${sign&&sign.signature?`<img src="${sign.signature}" style="max-height:36px;width:100%;object-fit:contain;border:1px solid var(--border);border-radius:4px;display:block;margin-top:6px;background:#fff" alt="sig">`:''}
+    </div>`;
+  });
+  stationSummaryHTML += '</div></div>';
+
+  const inputHTML = `<div style="padding:20px" ${locked?'style="opacity:.55;pointer-events:none"':''}>
+    <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:10px">Your Remarks (Optional)</div>
+    <textarea class="cosign-remarks-field" id="cosign-mgr-remarks-final"
+      placeholder="Add any closing remarks or notes for tonight…" rows="3"
+      ${locked?'disabled':''}></textarea>
+    <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:8px;margin-top:4px">Your Signature</div>
+    <div class="cosign-canvas-wrap">
+      <canvas class="cosign-canvas" id="cosign-mgr-canvas-final" width="600" height="120"></canvas>
+      <div class="cosign-canvas-label" id="cosign-mgr-canvas-label-final">Sign here to approve all stations</div>
+    </div>
+    <div class="cosign-sig-actions" style="margin-top:8px">
+      <button class="cosign-sig-clear" onclick="clearCosignCanvas('mgr','final')" ${locked?'disabled':''}>Clear</button>
+      <span style="font-size:11px;color:var(--muted);flex:1">One signature covers all ${stations.length} stations</span>
+      <button class="cosign-sign-btn mgr" onclick="submitCosignMgr('${date}')" ${locked?'disabled':''} style="padding:10px 24px;font-size:14px">
+        ✅ Approve All Stations
+      </button>
+    </div>
+  </div>`;
+
+  wrapper.innerHTML = headerHTML + lockMsg + stationSummaryHTML + inputHTML;
+  return wrapper;
 }
 
 function toggleCosignCard(stationSlug) {
@@ -5171,10 +5283,11 @@ function toggleCosignCard(stationSlug) {
   if (!card) return;
   card.classList.toggle('open');
   if (card.classList.contains('open')) {
-    setTimeout(() => { initCosignCanvas('sup',stationSlug); initCosignCanvas('mgr',stationSlug); }, 50);
+    setTimeout(() => initCosignCanvas('sup', stationSlug), 50);
   }
 }
 
+// ── Canvas engine ────────────────────────────────────────────────
 const _cosignCanvasState = {};
 function initCosignCanvas(role, slug) {
   const canvas = document.getElementById(`cosign-${role}-canvas-${slug}`);
@@ -5184,18 +5297,21 @@ function initCosignCanvas(role, slug) {
   _cosignCanvasState[key] = { drawing:false };
   const ctx = canvas.getContext('2d');
   ctx.strokeStyle = role==='mgr'?'#2d5a3d':'#1a6b8a';
-  ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-  const w = canvas.offsetWidth || 600, h = canvas.offsetHeight || 110;
-  canvas.width = w; canvas.height = h;
-  ctx.strokeStyle = role==='mgr'?'#2d5a3d':'#1a6b8a';
-  ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.lineWidth = 2.2; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  const resize = () => {
+    const w = canvas.offsetWidth||600, h = canvas.offsetHeight||(role==='mgr'?120:110);
+    canvas.width = w; canvas.height = h;
+    ctx.strokeStyle = role==='mgr'?'#2d5a3d':'#1a6b8a';
+    ctx.lineWidth = 2.2; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  };
+  resize();
   const getPos = e => {
     const r = canvas.getBoundingClientRect();
     const src = e.touches?e.touches[0]:e;
     return { x:(src.clientX-r.left)*(canvas.width/r.width), y:(src.clientY-r.top)*(canvas.height/r.height) };
   };
   const start = e => { e.preventDefault(); const p=getPos(e); _cosignCanvasState[key]={drawing:true,lastX:p.x,lastY:p.y}; const lbl=document.getElementById(`cosign-${role}-canvas-label-${slug}`); if(lbl)lbl.style.display='none'; };
-  const draw  = e => { e.preventDefault(); const st=_cosignCanvasState[key]; if(!st.drawing)return; const p=getPos(e); ctx.beginPath();ctx.moveTo(st.lastX,st.lastY);ctx.lineTo(p.x,p.y);ctx.stroke();st.lastX=p.x;st.lastY=p.y; };
+  const draw  = e => { e.preventDefault(); const st=_cosignCanvasState[key]; if(!st?.drawing)return; const p=getPos(e); ctx.beginPath();ctx.moveTo(st.lastX,st.lastY);ctx.lineTo(p.x,p.y);ctx.stroke();st.lastX=p.x;st.lastY=p.y; };
   const end   = e => { e.preventDefault(); if(_cosignCanvasState[key])_cosignCanvasState[key].drawing=false; };
   canvas.addEventListener('mousedown',start); canvas.addEventListener('mousemove',draw);
   canvas.addEventListener('mouseup',end); canvas.addEventListener('mouseleave',end);
@@ -5218,72 +5334,104 @@ function getCosignSignatureData(role, slug) {
   return Array.from(px).some((p,i)=>i%4===3&&p>0) ? canvas.toDataURL('image/png') : null;
 }
 
+// ── Submit supervisor sign-off (per station) ─────────────────────
 async function submitCosignSup(stationName, stationSlug, date) {
   if (!currentUser) return;
-  const remarks  = document.getElementById(`cosign-sup-remarks-${stationSlug}`)?.value?.trim()||'';
-  const sigData  = getCosignSignatureData('sup', stationSlug);
+  const remarks = document.getElementById(`cosign-sup-remarks-${stationSlug}`)?.value?.trim()||'';
+  const sigData = getCosignSignatureData('sup', stationSlug);
   if (!sigData) { showToast('Please draw your signature before signing off.',true); return; }
   showSyncOverlay(true);
-  const rec = await loadCosignRecord(date, stationName);
-  rec.supSign = { userId:currentUser.id, userName:currentUser.name, remarks, signature:sigData, signedAt:new Date().toISOString() };
-  await saveCosignRecord(date, stationName, rec);
+  const doc = await loadCosignDoc(date);
+  if (!doc.supSigns) doc.supSigns = {};
+  doc.supSigns[stationName] = { userId:currentUser.id, userName:currentUser.name, remarks, signature:sigData, signedAt:new Date().toISOString() };
+  await saveCosignDoc(date, doc);
   showSyncOverlay(false);
-  showToast(`✓ ${stationName} signed off`, false, true);
+  showToast(`✓ ${stationName} signed off by ${currentUser.name.split(' ')[0]}`, false, true);
   await loadCosignView();
 }
 
-async function submitCosignMgr(stationName, stationSlug, date) {
+// ── Submit manager single approval (covers all stations) ─────────
+async function submitCosignMgr(date) {
   if (!currentUser || currentUser.role !== 'manager') { showToast('Only managers can approve.',true); return; }
-  const remarks  = document.getElementById(`cosign-mgr-remarks-${stationSlug}`)?.value?.trim()||'';
-  const sigData  = getCosignSignatureData('mgr', stationSlug);
+  const remarks = document.getElementById('cosign-mgr-remarks-final')?.value?.trim()||'';
+  const sigData = getCosignSignatureData('mgr','final');
   if (!sigData) { showToast('Please draw your signature before approving.',true); return; }
   showSyncOverlay(true);
-  const rec = await loadCosignRecord(date, stationName);
-  if (!rec.supSign) { showSyncOverlay(false); showToast('Supervisor must sign off first.',true); return; }
-  rec.mgrSign = { userId:currentUser.id, userName:currentUser.name, remarks, signature:sigData, signedAt:new Date().toISOString() };
-  await saveCosignRecord(date, stationName, rec);
+  const doc      = await loadCosignDoc(date);
+  const stations = getCosignStations();
+  const allSigned = stations.every(s => !!doc.supSigns?.[s.stationName]);
+  if (!allSigned) { showSyncOverlay(false); showToast('All supervisors must sign off before manager approval.',true); return; }
+  doc.mgrSign = { userId:currentUser.id, userName:currentUser.name, remarks, signature:sigData, signedAt:new Date().toISOString() };
+  await saveCosignDoc(date, doc);
   showSyncOverlay(false);
-  showToast(`✓ ${stationName} approved`, false, true);
+  showToast('✅ Closing approved! All stations signed off.', false, true);
   await loadCosignView();
 }
 
+// ── PDF Export ───────────────────────────────────────────────────
 async function exportCosignPDF() {
-  const date = _cosignDate || getTodayStr();
+  const date     = _cosignDate || getTodayStr();
   const stations = getCosignStations();
   showSyncOverlay(true);
-  let body = `<h2 style="font-family:serif;margin:0 0 4px">Munchies — Closing Sign-Off</h2><p style="color:#888;margin-bottom:24px">${formatDateNice(date)} &nbsp;·&nbsp; Generated ${new Date().toLocaleString('en-GB')}</p>`;
+  const doc  = await loadCosignDoc(date);
+  const allUsers = await getAllUsers();
+  let body = `<h2 style="font-family:serif;margin:0 0 4px">Munchies — Closing Sign-Off</h2>
+    <p style="color:#888;margin-bottom:24px">${formatDateNice(date)} &nbsp;·&nbsp; Generated ${new Date().toLocaleString('en-GB')}</p>`;
+
+  // Per-station supervisor sign-offs
+  body += `<h3 style="font-family:serif;font-size:15px;margin:0 0 12px">Supervisor Station Sign-Offs</h3>`;
+  body += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:24px">`;
   for (const s of stations) {
-    const rec = await loadCosignRecord(date, s.stationName);
-    body += `<div style="border:1px solid #e4e0d8;border-radius:10px;margin-bottom:16px;overflow:hidden;page-break-inside:avoid">
-      <div style="background:#faf9f7;padding:12px 16px;border-bottom:1px solid #e4e0d8;font-family:serif;font-size:15px;font-weight:700">${s.emoji} ${s.stationName}</div>
-      <div style="padding:14px 16px;display:grid;grid-template-columns:1fr 1fr;gap:16px">
-        <div><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#888;margin-bottom:8px">Supervisor Sign-Off</div>
-          ${rec.supSign?`<b>${rec.supSign.userName}</b><br><span style="color:#888;font-size:11px">${new Date(rec.supSign.signedAt).toLocaleString('en-GB')}</span>${rec.supSign.remarks?`<p style="font-style:italic;color:#555;margin:6px 0 0">"${rec.supSign.remarks}"</p>`:''}${rec.supSign.signature?`<img src="${rec.supSign.signature}" style="max-height:55px;border:1px solid #e4e0d8;border-radius:4px;display:block;margin-top:8px">`:''}`:
-          '<span style="color:#e67e22;font-size:12px">Not yet signed</span>'}
-        </div>
-        <div><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#888;margin-bottom:8px">Manager Approval</div>
-          ${rec.mgrSign?`<b>${rec.mgrSign.userName}</b><br><span style="color:#888;font-size:11px">${new Date(rec.mgrSign.signedAt).toLocaleString('en-GB')}</span>${rec.mgrSign.remarks?`<p style="font-style:italic;color:#555;margin:6px 0 0">"${rec.mgrSign.remarks}"</p>`:''}${rec.mgrSign.signature?`<img src="${rec.mgrSign.signature}" style="max-height:55px;border:1px solid #e4e0d8;border-radius:4px;display:block;margin-top:8px">`:''}`:
-          '<span style="color:#e67e22;font-size:12px">Pending approval</span>'}
-        </div>
-      </div></div>`;
+    const sign = doc.supSigns?.[s.stationName];
+    body += `<div style="border:1px solid #e4e0d8;border-radius:10px;padding:12px 14px;page-break-inside:avoid">
+      <div style="font-family:serif;font-size:13px;font-weight:700;margin-bottom:6px">${s.emoji} ${s.stationName}</div>
+      <div style="font-size:11px;color:#888;margin-bottom:4px">${s.supervisorIds.map(id=>allUsers[id]?.name?.split(' ')[0]||id).join(' / ')}</div>
+      ${sign
+        ? `<div style="font-size:12px;font-weight:700">${sign.userName}</div>
+           <div style="font-size:11px;color:#888">${new Date(sign.signedAt).toLocaleString('en-GB')}</div>
+           ${sign.remarks?`<p style="font-size:11px;font-style:italic;color:#555;margin:5px 0 0">"${sign.remarks}"</p>`:''}
+           ${sign.signature?`<img src="${sign.signature}" style="max-height:45px;border:1px solid #e4e0d8;border-radius:4px;display:block;margin-top:8px">`:''}
+          `
+        : '<div style="color:#e67e22;font-size:12px">Not yet signed</div>'}
+    </div>`;
   }
+  body += '</div>';
+
+  // Manager final approval
+  body += `<div style="border:2px solid ${doc.mgrSign?'#2d5a3d':'#e4e0d8'};border-radius:12px;padding:16px 20px;page-break-inside:avoid">
+    <div style="font-family:serif;font-size:15px;font-weight:700;margin-bottom:10px">🔐 Manager Final Approval</div>
+    ${doc.mgrSign
+      ? `<div style="font-size:13px;font-weight:700">${doc.mgrSign.userName}</div>
+         <div style="font-size:11px;color:#888">${new Date(doc.mgrSign.signedAt).toLocaleString('en-GB')}</div>
+         ${doc.mgrSign.remarks?`<p style="font-style:italic;color:#555;margin:8px 0 0">"${doc.mgrSign.remarks}"</p>`:''}
+         ${doc.mgrSign.signature?`<img src="${doc.mgrSign.signature}" style="max-height:65px;border:1px solid #e4e0d8;border-radius:6px;display:block;margin-top:12px">`:''}
+        `
+      : '<div style="color:#e67e22">Pending — all supervisor sign-offs required first</div>'}
+  </div>`;
+
   showSyncOverlay(false);
   const w = window.open('','_blank');
-  w.document.write(`<html><head><title>Closing Sign-Off</title><link href="https://fonts.googleapis.com/css2?family=Mulish:wght@400;700&display=swap" rel="stylesheet"><style>body{font-family:'Mulish',sans-serif;font-size:13px;color:#1c1a17;padding:28px;max-width:860px;margin:0 auto}@media print{body{padding:16px}}</style></head><body>${body}</body></html>`);
+  w.document.write(`<html><head><title>Closing Sign-Off — ${date}</title>
+    <link href="https://fonts.googleapis.com/css2?family=Mulish:wght@400;700&display=swap" rel="stylesheet">
+    <style>body{font-family:'Mulish',sans-serif;font-size:13px;color:#1c1a17;padding:28px;max-width:900px;margin:0 auto}@media print{body{padding:16px}}</style>
+    </head><body>${body}</body></html>`);
   w.document.close();
   setTimeout(()=>w.print(),700);
 }
 
+// ── CSV Export ───────────────────────────────────────────────────
 async function exportCosignCSV() {
-  const date = _cosignDate || getTodayStr();
+  const date     = _cosignDate || getTodayStr();
   const stations = getCosignStations();
+  const doc      = await loadCosignDoc(date);
   const esc = v => '"'+String(v||'').replace(/"/g,'""')+'"';
-  const rows = [['Station','Supervisors','Sup Signed By','Sup Signed At','Sup Remarks','Mgr Approved By','Mgr Approved At','Mgr Remarks'].map(esc).join(',')];
+  const rows = [['Date','Station','Supervisors','Sup Signed By','Sup Signed At','Sup Remarks','Mgr Approved By','Mgr Approved At','Mgr Remarks'].map(esc).join(',')];
   for (const s of stations) {
-    const rec = await loadCosignRecord(date, s.stationName);
-    rows.push([esc(s.stationName),esc(s.supervisorIds.join(', ')),
-      esc(rec.supSign?.userName||''),esc(rec.supSign?new Date(rec.supSign.signedAt).toLocaleString('en-GB'):''),esc(rec.supSign?.remarks||''),
-      esc(rec.mgrSign?.userName||''),esc(rec.mgrSign?new Date(rec.mgrSign.signedAt).toLocaleString('en-GB'):''),esc(rec.mgrSign?.remarks||''),
+    const sign = doc.supSigns?.[s.stationName];
+    rows.push([
+      esc(date), esc(s.stationName), esc(s.supervisorIds.join('/')),
+      esc(sign?.userName||''), esc(sign?new Date(sign.signedAt).toLocaleString('en-GB'):''), esc(sign?.remarks||''),
+      esc(doc.mgrSign?.userName||''), esc(doc.mgrSign?new Date(doc.mgrSign.signedAt).toLocaleString('en-GB'):''), esc(doc.mgrSign?.remarks||''),
     ].join(','));
   }
   const blob = new Blob(['\uFEFF'+rows.join('\n')],{type:'text/csv;charset=utf-8;'});
@@ -5305,6 +5453,7 @@ window.switchMgrView       = switchMgrView;
 window.loadCosignView      = loadCosignView;
 window.navigateCosignDate  = navigateCosignDate;
 window.toggleCosignCard    = toggleCosignCard;
+window.initCosignCanvas    = initCosignCanvas;
 window.clearCosignCanvas   = clearCosignCanvas;
 window.submitCosignSup     = submitCosignSup;
 window.submitCosignMgr     = submitCosignMgr;
