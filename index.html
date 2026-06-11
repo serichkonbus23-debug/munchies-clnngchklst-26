@@ -385,6 +385,65 @@ body{background:var(--bg);color:var(--text);font-family:'Mulish',sans-serif;min-
   .checklist-card{padding:16px}
   .supervisor-checkboxes{grid-template-columns:1fr}
 }
+
+/* ═══════════════════════════════════════════════════
+   CLOSING SIGN-OFF VIEW
+═══════════════════════════════════════════════════ */
+.cosign-header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px}
+.cosign-date-nav{display:flex;align-items:center;gap:8px}
+.cosign-stations{display:flex;flex-direction:column;gap:16px}
+.cosign-station{background:var(--surface);border:1.5px solid var(--border);border-radius:14px;overflow:hidden;box-shadow:var(--shadow)}
+.cosign-station-header{padding:14px 18px;display:flex;align-items:center;gap:12px;cursor:pointer;user-select:none;transition:background .15s}
+.cosign-station-header:hover{background:var(--surface2)}
+.cosign-station-badge{width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0}
+.cosign-station-title{flex:1;font-family:'Playfair Display',serif;font-size:15px;font-weight:700}
+.cosign-station-status{display:flex;align-items:center;gap:6px;flex-shrink:0}
+.cosign-status-chip{font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;letter-spacing:.04em}
+.cosign-status-chip.pending{background:#f5f3ef;color:var(--muted);border:1px solid var(--border)}
+.cosign-status-chip.sup-done{background:var(--foh2-lt);color:var(--foh2-color);border:1px solid #b8d8ea}
+.cosign-status-chip.mgr-done{background:var(--accent-lt);color:var(--accent);border:1px solid #b8d4be}
+.cosign-station-chevron{font-size:14px;color:var(--muted);transition:transform .25s;flex-shrink:0}
+.cosign-station.open .cosign-station-chevron{transform:rotate(180deg)}
+.cosign-station-body{display:none;border-top:1.5px solid var(--border)}
+.cosign-station.open .cosign-station-body{display:block}
+.cosign-tasks-area{padding:14px 18px;background:var(--surface2);border-bottom:1px solid var(--border)}
+.cosign-task-row{display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px}
+.cosign-task-row:last-child{border-bottom:none}
+.cosign-checkbox{width:15px;height:15px;border-radius:3px;border:1.5px solid var(--border);flex-shrink:0}
+.cosign-task-text{flex:1;color:var(--muted)}
+.cosign-task-text.done{text-decoration:line-through}
+.cosign-task-initials{font-size:10px;font-weight:700;color:var(--muted);background:var(--surface);border:1px solid var(--border);border-radius:3px;padding:1px 5px}
+.cosign-sign-block{padding:16px 18px}
+.cosign-sign-label{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:10px;display:flex;align-items:center;gap:8px}
+.cosign-sign-label span.badge{font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px}
+.cosign-remarks-field{width:100%;border:1.5px solid var(--border);border-radius:8px;padding:10px 12px;font-family:'Mulish',sans-serif;font-size:13px;color:var(--text);background:var(--surface);resize:vertical;min-height:72px;outline:none;transition:border .2s;margin-bottom:10px}
+.cosign-remarks-field:focus{border-color:var(--accent)}
+.cosign-remarks-field:disabled{background:var(--surface2);color:var(--muted)}
+.cosign-canvas-wrap{border:1.5px solid var(--border);border-radius:10px;overflow:hidden;background:#fff;margin-bottom:8px;position:relative}
+.cosign-canvas{display:block;touch-action:none;cursor:crosshair;width:100%;height:110px}
+.cosign-canvas-label{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:12px;color:#ccc;pointer-events:none;font-style:italic}
+.cosign-sig-actions{display:flex;gap:8px;align-items:center;margin-bottom:4px}
+.cosign-sig-clear{background:none;border:1px solid var(--border);border-radius:6px;padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer;color:var(--muted);font-family:'Mulish',sans-serif;transition:all .2s}
+.cosign-sig-clear:hover{border-color:var(--danger);color:var(--danger)}
+.cosign-sig-clear:disabled{opacity:.4;cursor:not-allowed}
+.cosign-sign-btn{padding:8px 20px;border-radius:8px;border:none;font-family:'Mulish',sans-serif;font-size:13px;font-weight:700;cursor:pointer;transition:all .2s;display:inline-flex;align-items:center;gap:6px}
+.cosign-sign-btn.sup{background:var(--foh2-color);color:white}
+.cosign-sign-btn.sup:hover{background:#155a78}
+.cosign-sign-btn.mgr{background:var(--accent);color:white}
+.cosign-sign-btn.mgr:hover{background:#245030}
+.cosign-sign-btn:disabled{opacity:.4;cursor:not-allowed}
+.cosign-signed-display{background:var(--accent-lt);border:1px solid #b8d4be;border-radius:10px;padding:12px 16px;margin-bottom:8px}
+.cosign-signed-img{max-height:60px;border:1px solid var(--border);border-radius:6px;display:block;margin-bottom:6px;background:#fff}
+.cosign-signed-meta{font-size:11px;color:var(--muted)}
+.cosign-signed-remarks{font-size:13px;color:var(--text);margin-top:4px;line-height:1.5;white-space:pre-wrap}
+.cosign-divider{height:1px;background:var(--border);margin:0 18px}
+.cosign-final-block{padding:16px 18px;background:var(--accent-lt)}
+.cosign-final-label{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--accent);margin-bottom:12px}
+.cosign-summary-bar{display:flex;align-items:center;justify-content:space-between;padding:12px 18px;background:var(--surface);border-top:1px solid var(--border);flex-wrap:wrap;gap:8px}
+.cosign-summary-stat{text-align:center}
+.cosign-summary-stat .num{font-size:22px;font-weight:800;font-family:'Playfair Display',serif}
+.cosign-summary-stat .lbl{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.cosign-export-bar{display:flex;gap:10px;flex-wrap:wrap;margin-top:20px}
 </style>
 </head>
 <body>
@@ -545,6 +604,7 @@ body{background:var(--bg);color:var(--text);font-family:'Mulish',sans-serif;min-
       <button class="mgr-tab-btn" id="btn-view-editor" onclick="switchMgrView('editor')">⚙️ Edit Checklists</button>
       <button class="mgr-tab-btn" id="btn-view-users" onclick="switchMgrView('users')">👥 Team & PINs</button>
       <button class="mgr-tab-btn" id="btn-view-schedule" onclick="switchMgrView('schedule')">🗓 Shift Schedule</button>
+      <button class="mgr-tab-btn" id="btn-view-cosign" onclick="switchMgrView('cosign')" style="display:none">🔐 Closing Sign-Off</button>
       <div class="user-chip">
         <div class="user-avatar role-manager" id="mgr-avatar"></div>
         <div><div class="user-name" id="mgr-name-display"></div><div class="user-role">Manager</div></div>
@@ -594,6 +654,38 @@ body{background:var(--bg);color:var(--text);font-family:'Mulish',sans-serif;min-
       <div class="checklist-tabs" id="mgr-cl-tabs" style="margin-bottom:0"></div>
       <div class="checklist-card" id="mgr-cl-card">
         <!-- panels injected dynamically -->
+      </div>
+    </div>
+
+    <!-- CLOSING SIGN-OFF VIEW (Mariam & Richmond only) -->
+    <div class="mgr-view" id="view-cosign">
+      <div class="cosign-header">
+        <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+          <h2 style="font-family:'Playfair Display',serif;font-size:22px;font-weight:700">🔐 Closing Sign-Off</h2>
+          <span style="font-size:12px;color:var(--muted)">Supervisor remarks &amp; sign-off → Manager final approval</span>
+        </div>
+        <div class="cosign-date-nav">
+          <button class="nav-btn" onclick="navigateCosignDate(-1)">‹</button>
+          <div class="date-inp-wrap"><input type="date" id="cosign-date-picker" onchange="loadCosignView()"></div>
+          <button class="nav-btn" onclick="navigateCosignDate(1)">›</button>
+        </div>
+      </div>
+      <!-- Summary bar -->
+      <div id="cosign-summary-bar" style="display:flex;align-items:center;gap:20px;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 20px;margin-bottom:20px;flex-wrap:wrap">
+        <div class="cosign-summary-stat"><div class="num" id="cosign-stat-stations">—</div><div class="lbl">Stations</div></div>
+        <div style="width:1px;height:36px;background:var(--border)"></div>
+        <div class="cosign-summary-stat"><div class="num" id="cosign-stat-sup-done" style="color:var(--foh2-color)">—</div><div class="lbl">Sup Signed</div></div>
+        <div style="width:1px;height:36px;background:var(--border)"></div>
+        <div class="cosign-summary-stat"><div class="num" id="cosign-stat-mgr-done" style="color:var(--accent)">—</div><div class="lbl">Mgr Approved</div></div>
+        <div style="flex:1"></div>
+        <div class="cosign-export-bar" style="margin-top:0">
+          <button class="submit-btn" style="padding:8px 16px;font-size:12px;background:#c0392b" onclick="exportCosignPDF()">⬇ Download PDF</button>
+          <button class="submit-btn" style="padding:8px 16px;font-size:12px;background:#1a6b4a" onclick="exportCosignCSV()">⬇ Download CSV</button>
+        </div>
+      </div>
+      <!-- Stations list -->
+      <div class="cosign-stations" id="cosign-stations-container">
+        <div style="text-align:center;padding:40px;color:var(--muted)">Loading sign-off data…</div>
       </div>
     </div>
 
@@ -2732,9 +2824,11 @@ async function enterManager() {
     const el = document.getElementById(id);
     if (el) el.style.display = isOverviewOnly ? 'none' : '';
   });
-  // Show Shift Schedule tab only for full managers (Mariam & Richmond)
+  // Show Shift Schedule + Closing Sign-Off tabs only for full managers (Mariam & Richmond)
   const schedBtn = document.getElementById('btn-view-schedule');
   if (schedBtn) schedBtn.style.display = isFullManager ? '' : 'none';
+  const cosignBtn = document.getElementById('btn-view-cosign');
+  if (cosignBtn) cosignBtn.style.display = isFullManager ? '' : 'none';
   currentDate = getTodayStr();
   const picker = document.getElementById('mgr-date-picker');
   picker.value = currentDate; picker.min = START_DATE; picker.max = getTodayStr();
@@ -2768,6 +2862,12 @@ function switchMgrView(view) {
   document.querySelectorAll('.mgr-tab-btn').forEach(b => b.classList.remove('active'));
   document.getElementById('btn-view-'+view)?.classList.add('active');
   if (view === 'users') { buildUsersTable(); buildTeamsSection(); }
+  if (view === 'cosign') {
+    const picker = document.getElementById('cosign-date-picker');
+    if (picker && !picker.value) picker.value = currentDate || getTodayStr();
+    _cosignDate = document.getElementById('cosign-date-picker')?.value || getTodayStr();
+    loadCosignView();
+  }
 }
 
 async function buildRemarkAreaSelect() {
@@ -4900,6 +5000,298 @@ function showToast(msg,isError=false,isGold=false) {
 
 // ════════════════════════════════
 // EXPOSE FUNCTIONS TO GLOBAL SCOPE
+
+// ════════════════════════════════════════════════════════════════════
+// CLOSING SIGN-OFF — Manager-only station-by-station sign-off module
+// ════════════════════════════════════════════════════════════════════
+
+const COSIGN_KEY = (date, station) =>
+  `cosign:${date}:${station.toLowerCase().replace(/\s+/g,'_')}`;
+
+function getCosignStations() {
+  const emo = { 'Front Area':'🪑','Serving Area':'🍽️','Storeroom':'📦','Kitchen':'🍳','Grill Station':'🔥','All Stations':'🏠' };
+  const owners = window._masterChecklistsCacheLocal?.closing?.closingOwners || {
+    'Front Area':    ['portia','evans_o'],
+    'Serving Area':  ['ruth','evans_g'],
+    'Storeroom':     ['ruth','evans_g'],
+    'Kitchen':       ['patience','sarah'],
+    'All Stations':  ['patience','sarah'],
+    'Grill Station': ['michael'],
+  };
+  return Object.entries(owners).map(([name, ids]) => ({ stationName:name, supervisorIds:ids, emoji: emo[name]||'📋' }));
+}
+
+async function loadCosignRecord(date, station) {
+  const raw = await cloudGet(COSIGN_KEY(date, station));
+  return raw || { supSign:null, mgrSign:null };
+}
+async function saveCosignRecord(date, station, rec) {
+  await cloudSet(COSIGN_KEY(date, station), rec);
+}
+
+let _cosignDate = null;
+function navigateCosignDate(dir) {
+  const d = new Date(_cosignDate || getTodayStr());
+  d.setDate(d.getDate() + dir);
+  _cosignDate = d.toISOString().slice(0,10);
+  const picker = document.getElementById('cosign-date-picker');
+  if (picker) picker.value = _cosignDate;
+  loadCosignView();
+}
+
+async function loadCosignView() {
+  const picker = document.getElementById('cosign-date-picker');
+  _cosignDate = picker?.value || getTodayStr();
+  const date = _cosignDate;
+  const container = document.getElementById('cosign-stations-container');
+  if (!container) return;
+  container.innerHTML = '<div style="text-align:center;padding:40px;color:var(--muted)">Loading…</div>';
+
+  const allUsers = await getAllUsers();
+  const cl = await loadMasterChecklists();
+  window._masterChecklistsCacheLocal = cl;
+
+  const stations = getCosignStations();
+  const closingData = (await loadChecklist(date,'closing',null)) || { tasks:{} };
+
+  let supDoneCount=0, mgrDoneCount=0;
+  const stationRecords = [];
+  for (const s of stations) {
+    const rec = await loadCosignRecord(date, s.stationName);
+    stationRecords.push({...s, rec});
+    if (rec.supSign) supDoneCount++;
+    if (rec.mgrSign) mgrDoneCount++;
+  }
+  const sBar = document.getElementById('cosign-stat-stations');
+  const sBars = document.getElementById('cosign-stat-sup-done');
+  const sBarm = document.getElementById('cosign-stat-mgr-done');
+  if (sBar) sBar.textContent = stations.length;
+  if (sBars) sBars.textContent = supDoneCount;
+  if (sBarm) sBarm.textContent = mgrDoneCount;
+
+  container.innerHTML = '';
+  stationRecords.forEach((s, idx) => {
+    container.appendChild(buildCosignStationCard(s, idx, closingData, cl, allUsers, date));
+  });
+}
+
+function buildCosignStationCard(s, idx, closingData, cl, allUsers, date) {
+  const { stationName, supervisorIds, emoji, rec } = s;
+  const isSupDone = !!rec.supSign, isMgrDone = !!rec.mgrSign;
+  const statusClass = isMgrDone ? 'mgr-done' : (isSupDone ? 'sup-done' : 'pending');
+  const statusText  = isMgrDone ? '✓ Manager Approved' : (isSupDone ? '✓ Sup Signed' : 'Pending');
+  const supNames    = supervisorIds.map(id => allUsers[id]?.name?.split(' ')[0] || id).join(' / ');
+  const stationSlug = stationName.toLowerCase().replace(/\s+/g,'_');
+
+  // Task rows
+  let taskRowsHTML = '', gIdx = 0;
+  (cl.closing?.groups||[]).forEach(g => {
+    g.tasks.forEach(task => {
+      if (g.cat === stationName) {
+        const t = closingData.tasks?.[gIdx];
+        const checked = !!(t?.checked);
+        taskRowsHTML += `<div class="cosign-task-row">
+          <span class="cosign-checkbox" style="background:${checked?'var(--close-color)':'transparent'};border-color:${checked?'var(--close-color)':'var(--border)'};display:flex;align-items:center;justify-content:center">
+            ${checked?'<svg width="9" height="7" viewBox="0 0 9 7" fill="none"><path d="M1 3L3.5 5.5L8 1" stroke="white" stroke-width="1.6" stroke-linecap="round"/></svg>':''}
+          </span>
+          <span class="cosign-task-text ${checked?'done':''}">${task}</span>
+          ${t?.initials?`<span class="cosign-task-initials">${t.initials}</span>`:''}
+        </div>`;
+      }
+      gIdx++;
+    });
+  });
+
+  // Supervisor sign block
+  const supBlockHTML = isSupDone
+    ? `<div class="cosign-signed-display">
+        <div class="cosign-signed-meta"><strong>${rec.supSign.userName}</strong> — ${new Date(rec.supSign.signedAt).toLocaleString('en-GB')}</div>
+        ${rec.supSign.remarks?`<div class="cosign-signed-remarks">💬 ${rec.supSign.remarks}</div>`:''}
+        ${rec.supSign.signature?`<img class="cosign-signed-img" src="${rec.supSign.signature}" alt="sig">`:''}
+      </div>`
+    : `<textarea class="cosign-remarks-field" id="cosign-sup-remarks-${stationSlug}" placeholder="Supervisor remarks for ${stationName} (optional)…" rows="2"></textarea>
+       <div class="cosign-canvas-wrap"><canvas class="cosign-canvas" id="cosign-sup-canvas-${stationSlug}" width="600" height="110"></canvas>
+       <div class="cosign-canvas-label" id="cosign-sup-canvas-label-${stationSlug}">Sign here</div></div>
+       <div class="cosign-sig-actions">
+         <button class="cosign-sig-clear" onclick="clearCosignCanvas('sup','${stationSlug}')">Clear</button>
+         <span style="font-size:11px;color:var(--muted);flex:1">Draw your signature above</span>
+         <button class="cosign-sign-btn sup" onclick="submitCosignSup('${stationName}','${stationSlug}','${date}')">✍ Sign Off Station</button>
+       </div>`;
+
+  // Manager sign block
+  const mgrBlockHTML = isMgrDone
+    ? `<div class="cosign-signed-display" style="background:var(--accent-lt)">
+        <div class="cosign-signed-meta"><strong>${rec.mgrSign.userName}</strong> — ${new Date(rec.mgrSign.signedAt).toLocaleString('en-GB')}</div>
+        ${rec.mgrSign.remarks?`<div class="cosign-signed-remarks">💬 ${rec.mgrSign.remarks}</div>`:''}
+        ${rec.mgrSign.signature?`<img class="cosign-signed-img" src="${rec.mgrSign.signature}" alt="sig">`:''}
+      </div>`
+    : `${!isSupDone?`<div style="font-size:12px;color:var(--muted);margin-bottom:10px;padding:8px 12px;background:#fdf6e3;border:1px solid #e8d48a;border-radius:8px">⏳ Waiting for supervisor sign-off.</div>`:''}
+       <textarea class="cosign-remarks-field" id="cosign-mgr-remarks-${stationSlug}" placeholder="Manager remarks for ${stationName} (optional)…" rows="2" ${!isSupDone?'disabled':''}></textarea>
+       <div class="cosign-canvas-wrap"><canvas class="cosign-canvas" id="cosign-mgr-canvas-${stationSlug}" width="600" height="110"></canvas>
+       <div class="cosign-canvas-label" id="cosign-mgr-canvas-label-${stationSlug}">Sign here</div></div>
+       <div class="cosign-sig-actions">
+         <button class="cosign-sig-clear" onclick="clearCosignCanvas('mgr','${stationSlug}')" ${!isSupDone?'disabled':''}>Clear</button>
+         <span style="font-size:11px;color:var(--muted);flex:1">Draw your signature above</span>
+         <button class="cosign-sign-btn mgr" onclick="submitCosignMgr('${stationName}','${stationSlug}','${date}')" ${!isSupDone?'disabled':''}>✅ Approve &amp; Sign</button>
+       </div>`;
+
+  const card = document.createElement('div');
+  card.className = `cosign-station${idx===0?' open':''}`;
+  card.id = `cosign-card-${stationSlug}`;
+  card.innerHTML = `
+    <div class="cosign-station-header" onclick="toggleCosignCard('${stationSlug}')">
+      <div class="cosign-station-badge">${emoji}</div>
+      <div class="cosign-station-title">${stationName}</div>
+      <div class="cosign-station-status">
+        <span style="font-size:11px;color:var(--muted);margin-right:4px">${supNames}</span>
+        <span class="cosign-status-chip ${statusClass}">${statusText}</span>
+      </div>
+      <span class="cosign-station-chevron">▾</span>
+    </div>
+    <div class="cosign-station-body">
+      ${taskRowsHTML?`<div class="cosign-tasks-area"><div style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:8px">Tasks Completed</div>${taskRowsHTML}</div>`:''}
+      <div class="cosign-sign-block">
+        <div class="cosign-sign-label">
+          <span>👤 Supervisor Sign-Off</span>
+          <span class="badge" style="font-size:10px;padding:2px 8px;border-radius:20px;background:${isSupDone?'var(--foh2-lt)':'var(--surface2)'};color:${isSupDone?'var(--foh2-color)':'var(--muted)'}">${isSupDone?'✓ Signed':'Required'}</span>
+        </div>
+        ${supBlockHTML}
+      </div>
+      <div class="cosign-divider"></div>
+      <div class="cosign-final-block">
+        <div class="cosign-final-label">🔐 Manager Final Approval</div>
+        ${mgrBlockHTML}
+      </div>
+    </div>`;
+  return card;
+}
+
+function toggleCosignCard(stationSlug) {
+  const card = document.getElementById(`cosign-card-${stationSlug}`);
+  if (!card) return;
+  card.classList.toggle('open');
+  if (card.classList.contains('open')) {
+    setTimeout(() => { initCosignCanvas('sup',stationSlug); initCosignCanvas('mgr',stationSlug); }, 50);
+  }
+}
+
+const _cosignCanvasState = {};
+function initCosignCanvas(role, slug) {
+  const canvas = document.getElementById(`cosign-${role}-canvas-${slug}`);
+  if (!canvas || canvas._ci) return;
+  canvas._ci = true;
+  const key = `${slug}_${role}`;
+  _cosignCanvasState[key] = { drawing:false };
+  const ctx = canvas.getContext('2d');
+  ctx.strokeStyle = role==='mgr'?'#2d5a3d':'#1a6b8a';
+  ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  const w = canvas.offsetWidth || 600, h = canvas.offsetHeight || 110;
+  canvas.width = w; canvas.height = h;
+  ctx.strokeStyle = role==='mgr'?'#2d5a3d':'#1a6b8a';
+  ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  const getPos = e => {
+    const r = canvas.getBoundingClientRect();
+    const src = e.touches?e.touches[0]:e;
+    return { x:(src.clientX-r.left)*(canvas.width/r.width), y:(src.clientY-r.top)*(canvas.height/r.height) };
+  };
+  const start = e => { e.preventDefault(); const p=getPos(e); _cosignCanvasState[key]={drawing:true,lastX:p.x,lastY:p.y}; const lbl=document.getElementById(`cosign-${role}-canvas-label-${slug}`); if(lbl)lbl.style.display='none'; };
+  const draw  = e => { e.preventDefault(); const st=_cosignCanvasState[key]; if(!st.drawing)return; const p=getPos(e); ctx.beginPath();ctx.moveTo(st.lastX,st.lastY);ctx.lineTo(p.x,p.y);ctx.stroke();st.lastX=p.x;st.lastY=p.y; };
+  const end   = e => { e.preventDefault(); if(_cosignCanvasState[key])_cosignCanvasState[key].drawing=false; };
+  canvas.addEventListener('mousedown',start); canvas.addEventListener('mousemove',draw);
+  canvas.addEventListener('mouseup',end); canvas.addEventListener('mouseleave',end);
+  canvas.addEventListener('touchstart',start,{passive:false}); canvas.addEventListener('touchmove',draw,{passive:false});
+  canvas.addEventListener('touchend',end,{passive:false});
+}
+
+function clearCosignCanvas(role, slug) {
+  const canvas = document.getElementById(`cosign-${role}-canvas-${slug}`);
+  if (!canvas) return;
+  canvas.getContext('2d').clearRect(0,0,canvas.width,canvas.height);
+  const lbl = document.getElementById(`cosign-${role}-canvas-label-${slug}`);
+  if (lbl) lbl.style.display='';
+}
+
+function getCosignSignatureData(role, slug) {
+  const canvas = document.getElementById(`cosign-${role}-canvas-${slug}`);
+  if (!canvas) return null;
+  const px = canvas.getContext('2d').getImageData(0,0,canvas.width,canvas.height).data;
+  return Array.from(px).some((p,i)=>i%4===3&&p>0) ? canvas.toDataURL('image/png') : null;
+}
+
+async function submitCosignSup(stationName, stationSlug, date) {
+  if (!currentUser) return;
+  const remarks  = document.getElementById(`cosign-sup-remarks-${stationSlug}`)?.value?.trim()||'';
+  const sigData  = getCosignSignatureData('sup', stationSlug);
+  if (!sigData) { showToast('Please draw your signature before signing off.',true); return; }
+  showSyncOverlay(true);
+  const rec = await loadCosignRecord(date, stationName);
+  rec.supSign = { userId:currentUser.id, userName:currentUser.name, remarks, signature:sigData, signedAt:new Date().toISOString() };
+  await saveCosignRecord(date, stationName, rec);
+  showSyncOverlay(false);
+  showToast(`✓ ${stationName} signed off`, false, true);
+  await loadCosignView();
+}
+
+async function submitCosignMgr(stationName, stationSlug, date) {
+  if (!currentUser || currentUser.role !== 'manager') { showToast('Only managers can approve.',true); return; }
+  const remarks  = document.getElementById(`cosign-mgr-remarks-${stationSlug}`)?.value?.trim()||'';
+  const sigData  = getCosignSignatureData('mgr', stationSlug);
+  if (!sigData) { showToast('Please draw your signature before approving.',true); return; }
+  showSyncOverlay(true);
+  const rec = await loadCosignRecord(date, stationName);
+  if (!rec.supSign) { showSyncOverlay(false); showToast('Supervisor must sign off first.',true); return; }
+  rec.mgrSign = { userId:currentUser.id, userName:currentUser.name, remarks, signature:sigData, signedAt:new Date().toISOString() };
+  await saveCosignRecord(date, stationName, rec);
+  showSyncOverlay(false);
+  showToast(`✓ ${stationName} approved`, false, true);
+  await loadCosignView();
+}
+
+async function exportCosignPDF() {
+  const date = _cosignDate || getTodayStr();
+  const stations = getCosignStations();
+  showSyncOverlay(true);
+  let body = `<h2 style="font-family:serif;margin:0 0 4px">Munchies — Closing Sign-Off</h2><p style="color:#888;margin-bottom:24px">${formatDateNice(date)} &nbsp;·&nbsp; Generated ${new Date().toLocaleString('en-GB')}</p>`;
+  for (const s of stations) {
+    const rec = await loadCosignRecord(date, s.stationName);
+    body += `<div style="border:1px solid #e4e0d8;border-radius:10px;margin-bottom:16px;overflow:hidden;page-break-inside:avoid">
+      <div style="background:#faf9f7;padding:12px 16px;border-bottom:1px solid #e4e0d8;font-family:serif;font-size:15px;font-weight:700">${s.emoji} ${s.stationName}</div>
+      <div style="padding:14px 16px;display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#888;margin-bottom:8px">Supervisor Sign-Off</div>
+          ${rec.supSign?`<b>${rec.supSign.userName}</b><br><span style="color:#888;font-size:11px">${new Date(rec.supSign.signedAt).toLocaleString('en-GB')}</span>${rec.supSign.remarks?`<p style="font-style:italic;color:#555;margin:6px 0 0">"${rec.supSign.remarks}"</p>`:''}${rec.supSign.signature?`<img src="${rec.supSign.signature}" style="max-height:55px;border:1px solid #e4e0d8;border-radius:4px;display:block;margin-top:8px">`:''}`:
+          '<span style="color:#e67e22;font-size:12px">Not yet signed</span>'}
+        </div>
+        <div><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#888;margin-bottom:8px">Manager Approval</div>
+          ${rec.mgrSign?`<b>${rec.mgrSign.userName}</b><br><span style="color:#888;font-size:11px">${new Date(rec.mgrSign.signedAt).toLocaleString('en-GB')}</span>${rec.mgrSign.remarks?`<p style="font-style:italic;color:#555;margin:6px 0 0">"${rec.mgrSign.remarks}"</p>`:''}${rec.mgrSign.signature?`<img src="${rec.mgrSign.signature}" style="max-height:55px;border:1px solid #e4e0d8;border-radius:4px;display:block;margin-top:8px">`:''}`:
+          '<span style="color:#e67e22;font-size:12px">Pending approval</span>'}
+        </div>
+      </div></div>`;
+  }
+  showSyncOverlay(false);
+  const w = window.open('','_blank');
+  w.document.write(`<html><head><title>Closing Sign-Off</title><link href="https://fonts.googleapis.com/css2?family=Mulish:wght@400;700&display=swap" rel="stylesheet"><style>body{font-family:'Mulish',sans-serif;font-size:13px;color:#1c1a17;padding:28px;max-width:860px;margin:0 auto}@media print{body{padding:16px}}</style></head><body>${body}</body></html>`);
+  w.document.close();
+  setTimeout(()=>w.print(),700);
+}
+
+async function exportCosignCSV() {
+  const date = _cosignDate || getTodayStr();
+  const stations = getCosignStations();
+  const esc = v => '"'+String(v||'').replace(/"/g,'""')+'"';
+  const rows = [['Station','Supervisors','Sup Signed By','Sup Signed At','Sup Remarks','Mgr Approved By','Mgr Approved At','Mgr Remarks'].map(esc).join(',')];
+  for (const s of stations) {
+    const rec = await loadCosignRecord(date, s.stationName);
+    rows.push([esc(s.stationName),esc(s.supervisorIds.join(', ')),
+      esc(rec.supSign?.userName||''),esc(rec.supSign?new Date(rec.supSign.signedAt).toLocaleString('en-GB'):''),esc(rec.supSign?.remarks||''),
+      esc(rec.mgrSign?.userName||''),esc(rec.mgrSign?new Date(rec.mgrSign.signedAt).toLocaleString('en-GB'):''),esc(rec.mgrSign?.remarks||''),
+    ].join(','));
+  }
+  const blob = new Blob(['\uFEFF'+rows.join('\n')],{type:'text/csv;charset=utf-8;'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = `munchies_cosign_${date}.csv`; a.click(); URL.revokeObjectURL(a.href);
+  showToast('✓ CSV downloaded!',false,true);
+}
+
 // (required because this script runs as a module)
 // ════════════════════════════════
 window.doLogin             = doLogin;
@@ -4910,6 +5302,14 @@ window._forceSubmitChecklist = _forceSubmitChecklist;
 window.loadManagerView     = loadManagerView;
 window.navigateDate        = navigateDate;
 window.switchMgrView       = switchMgrView;
+window.loadCosignView      = loadCosignView;
+window.navigateCosignDate  = navigateCosignDate;
+window.toggleCosignCard    = toggleCosignCard;
+window.clearCosignCanvas   = clearCosignCanvas;
+window.submitCosignSup     = submitCosignSup;
+window.submitCosignMgr     = submitCosignMgr;
+window.exportCosignPDF     = exportCosignPDF;
+window.exportCosignCSV     = exportCosignCSV;
 window.syncDatePickers     = syncDatePickers;
 window.addRemark           = addRemark;
 window.mgrAutoSave         = mgrAutoSave;
